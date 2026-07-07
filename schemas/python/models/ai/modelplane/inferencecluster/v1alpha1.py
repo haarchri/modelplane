@@ -31,6 +31,17 @@ class Cache(BaseModel):
 class IdentitySecretRef(BaseModel):
     key: constr(min_length=1, max_length=253) | None = 'private_key'
     name: constr(min_length=1, max_length=253)
+    type: (
+        Literal[
+            'GoogleApplicationCredentials',
+            'AWSWebIdentityCredentials',
+            'NebiusServiceAccountCredentials',
+        ]
+        | None
+    ) = 'GoogleApplicationCredentials'
+    """
+    Cloud identity type the credential authenticates as. Must match the cloud the existing cluster runs on. Defaults to GoogleApplicationCredentials.
+    """
 
 
 class SecretRef(BaseModel):
@@ -45,7 +56,7 @@ class Existing(BaseModel):
     """
     identitySecretRef: IdentitySecretRef | None = None
     """
-    Optional reference to a Secret containing cloud provider credentials for IAM-based authentication.
+    Optional reference to a Secret containing cloud provider credentials for IAM-based authentication. The type selects which cloud identity the ProviderConfigs authenticate as, and must match the cloud the existing cluster runs on.
     """
     secretRef: SecretRef
     """

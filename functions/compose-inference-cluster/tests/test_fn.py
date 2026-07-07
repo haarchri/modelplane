@@ -360,6 +360,77 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
         )
         want1.requirements.resources["class-gpu-l4"].CopyFrom(class_selector)
 
+        # --- Case 1b: Existing cluster with a non-GCP identity threads the
+        # declared identity type into the CPC and the ServingStack. ---
+        req1b = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        v1alpha1.InferenceCluster(
+                            metadata=metav1.ObjectMeta(
+                                name="test-cluster",
+                                namespace="modelplane-system",
+                            ),
+                            spec=v1alpha1.Spec(
+                                cluster=v1alpha1.Cluster(
+                                    source="Existing",
+                                    existing=v1alpha1.Existing(
+                                        secretRef=v1alpha1.SecretRef(name="my-kubeconfig"),
+                                        identitySecretRef=v1alpha1.IdentitySecretRef(
+                                            name="nebius-creds",
+                                            key="credentials.json",
+                                            type="NebiusServiceAccountCredentials",
+                                        ),
+                                    ),
+                                ),
+                                nodePools=[
+                                    v1alpha1.NodePool(
+                                        name="l4-pool",
+                                        className="gpu-l4",
+                                        nodeCount=2,
+                                        maxNodeCount=4,
+                                    ),
+                                ],
+                            ),
+                        ).model_dump(exclude_none=True, mode="json")
+                    ),
+                ),
+            ),
+        )
+        req1b.required_resources["class-gpu-l4"].items.append(
+            fnv1.Resource(resource=resource.dict_to_struct(inference_class_l4))
+        )
+
+        # want1b mirrors want1 but with the Nebius identity on the CPC and an
+        # extra ServingStack identity secret of the same type.
+        want1b = fnv1.RunFunctionResponse()
+        want1b.CopyFrom(want1)
+        cpc1b = want1b.desired.resources["cluster-provider-config-kubernetes"]
+        cpc1b_dict = resource.struct_to_dict(cpc1b.resource)
+        cpc1b_dict["spec"]["identity"] = {
+            "type": "NebiusServiceAccountCredentials",
+            "source": "Secret",
+            "secretRef": {
+                "namespace": "modelplane-system",
+                "name": "nebius-creds",
+                "key": "credentials.json",
+            },
+        }
+        cpc1b.resource.CopyFrom(resource.dict_to_struct(cpc1b_dict))
+        backend1b = want1b.desired.resources["serving-stack"]
+        backend1b_dict = resource.struct_to_dict(backend1b.resource)
+        backend1b_dict["spec"]["secrets"].append(
+            {
+                "type": "NebiusServiceAccountCredentials",
+                "name": "nebius-creds",
+                "key": "credentials.json",
+            }
+        )
+        backend1b.resource.CopyFrom(resource.dict_to_struct(backend1b_dict))
+        # want1 gains the replica-guard requirement in place from the guard cases
+        # below, after this snapshot; add it here so want1b matches on its own.
+        want1b.requirements.resources["model-replicas"].CopyFrom(_replicas_selector("test-cluster"))
+
         # --- Case 2: GKE cluster first pass - no observed GKE, classes resolved. ---
         req2 = fnv1.RunFunctionRequest(
             observed=fnv1.State(
@@ -1068,7 +1139,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 "cache": {"storageClassName": "modelplane-rwx"},
                 "secrets": [
                     {"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"},
-                    {"type": "GCPServiceAccountKey", "name": "test-cluster-sa-key-fghij", "key": "credentials.json"},
+                    {"type": "GoogleApplicationCredentials", "name": "test-cluster-sa-key-fghij", "key": "credentials.json"},
                 ],
             },
         }
@@ -1225,7 +1296,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                             "key": "kubeconfig",
                                         },
                                         {
-                                            "type": "GCPServiceAccountKey",
+                                            "type": "GoogleApplicationCredentials",
                                             "name": "test-cluster-sa-key-fghij",
                                             "key": "credentials.json",
                                         },
@@ -1442,6 +1513,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
 
         cases = [
             Case(name="existing cluster with secrets composes backend and CPC", req=req1, want=want1),
+            Case(name="existing cluster with a non-GCP identity threads the identity type", req=req1b, want=want1b),
             Case(name="GKE cluster first pass composes GKECluster XR only", req=req2, want=want2),
             Case(name="existing cluster second pass with backend ready", req=req3, want=want3),
             Case(name="EKS cluster first pass composes EKSCluster XR only", req=req4, want=want4),

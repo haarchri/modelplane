@@ -206,12 +206,12 @@ spec:
                       description: >-
                         The type of credential this secret contains.
                         Kubeconfig contains a kubeconfig file with the cluster
-                        endpoint and CA certificate. GCPServiceAccountKey
-                        contains a GCP service account JSON key that can
-                        authenticate to the cluster via GKE IAM.
+                        endpoint and CA certificate. GoogleApplicationCredentials
+                        contains a GCP service account JSON key that
+                        authenticates to the cluster via GKE IAM.
                       enum:
                       - Kubeconfig
-                      - GCPServiceAccountKey
+                      - GoogleApplicationCredentials
                     name:
                       type: string
                       description: Name of the Secret.

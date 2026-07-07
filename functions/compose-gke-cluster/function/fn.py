@@ -64,9 +64,9 @@ _LABEL_GPU = "modelplane.ai/gpu"
 _LABEL_POOL = "modelplane.ai/pool"
 
 # Secret types written to XR status. compose-inference-cluster reads
-# these to wire the kubeconfig and SA key into ProviderConfigs.
+# these to wire the kubeconfig and SA key into ProviderConfigs. The SA key's
+# type is the provider identity it authenticates as (see _IDENTITY_TYPE_GCP).
 _SECRET_TYPE_KUBECONFIG = "Kubeconfig"
-_SECRET_TYPE_GCP_SA_KEY = "GCPServiceAccountKey"
 
 # Secret keys within the Kubernetes Secrets created by GCP providers.
 _SECRET_KEY_KUBECONFIG = "kubeconfig"
@@ -503,7 +503,7 @@ class Composer:
                     key=_SECRET_KEY_KUBECONFIG,
                 ),
                 v1alpha1.Secret(
-                    type=_SECRET_TYPE_GCP_SA_KEY,
+                    type=_IDENTITY_TYPE_GCP,
                     name=_sa_key_secret_name(self.xr),
                     key=_SECRET_KEY_GCP_SA,
                 ),

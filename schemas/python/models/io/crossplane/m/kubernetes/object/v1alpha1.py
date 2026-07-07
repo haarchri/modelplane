@@ -54,6 +54,12 @@ class ConnectionDetail(BaseModel):
 
 
 class ForProvider(BaseModel):
+    deletionPropagationPolicy: Literal['Orphan', 'Background', 'Foreground'] | None = (
+        'Background'
+    )
+    """
+    Deletion policy for created kubernetes object, defaults to Background
+    """
     manifest: dict[str, Any]
     """
     Raw JSON representation of the kubernetes object to be created.

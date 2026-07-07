@@ -8,7 +8,7 @@ spec:
     - type: Kubeconfig
       name: west-gke-kubeconfig
       key: kubeconfig
-    - type: GCPServiceAccountKey
+    - type: GoogleApplicationCredentials
       name: west-gke-sa-key
       key: private_key
   versions:

@@ -78,10 +78,10 @@ _REPLICA_GUARD_RESOURCE_KEY = "usage-replicas"
 # function's _LABEL_CLUSTER.
 _LABEL_CLUSTER = "modelplane.ai/cluster"
 
-# Secret types that couple compose-gke-cluster (writer) to this function
-# (reader) and compose-serving-stack (reader).
+# Secret type that couples compose-gke-cluster (writer) to this function
+# (reader). Every other secret type is a provider identity type, passed through
+# to the ProviderConfigs unchanged.
 _SECRET_TYPE_KUBECONFIG = "Kubeconfig"
-_SECRET_TYPE_GCP_SA_KEY = "GCPServiceAccountKey"
 
 # The modelplane-system namespace. Used for the ServingStack XR,
 # ClusterProviderConfig secretRefs, and status.namespace.
@@ -255,11 +255,16 @@ class Composer:
 
         gke_ready = resource.get_condition(self.req.observed.resources.get("gke-cluster"), "Ready").status == "True"
         kubeconfig_secret = self.observed_gke_secret(_SECRET_TYPE_KUBECONFIG)
-        sa_key = self.observed_gke_secret(_SECRET_TYPE_GCP_SA_KEY)
+        sa_key = self.observed_gke_secret(_IDENTITY_TYPE_GCP)
         backend_exists = BACKEND_RESOURCE_KEY in self.req.observed.resources
 
         if gke_ready and kubeconfig_secret:
-            self.compose_cluster_provider_config(kubeconfig_secret.name, kubeconfig_secret.key, sa_key)
+            self.compose_cluster_provider_config(
+                kubeconfig_secret.name,
+                kubeconfig_secret.key,
+                identity_ref=sa_key,
+                identity_type=_IDENTITY_TYPE_GCP,
+            )
 
         backend_secrets = self.resolve_gke_backend_secrets(gke_ready=gke_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
@@ -322,14 +327,20 @@ class Composer:
 
         identity = existing.identitySecretRef
 
-        self.compose_cluster_provider_config(existing.secretRef.name, existing.secretRef.key, sa_key=identity)
+        self.compose_cluster_provider_config(
+            existing.secretRef.name,
+            existing.secretRef.key,
+            identity_ref=identity,
+            identity_type=(identity.type or _IDENTITY_TYPE_GCP) if identity else None,
+        )
 
         backend_secrets = [
             ssv1alpha1.Secret(type=_SECRET_TYPE_KUBECONFIG, name=existing.secretRef.name, key=existing.secretRef.key),
         ]
         if identity:
             backend_secrets.append(
-                ssv1alpha1.Secret(type=_SECRET_TYPE_GCP_SA_KEY, name=identity.name, key=identity.key),
+                # type defaults to GCP in the XRD; coalesce so it's never None.
+                ssv1alpha1.Secret(type=identity.type or _IDENTITY_TYPE_GCP, name=identity.name, key=identity.key),
             )
         self.compose_serving_stack(backend_secrets)
 
@@ -366,10 +377,16 @@ class Composer:
         self,
         kubeconfig_name: str,
         kubeconfig_key: str | None,
-        sa_key: gkev1alpha1.Secret | v1alpha1.IdentitySecretRef | None = None,
+        identity_ref: gkev1alpha1.Secret | v1alpha1.IdentitySecretRef | None = None,
+        identity_type: str | None = None,
     ) -> None:
         """Compose a ClusterProviderConfig for provider-kubernetes so that
-        ModelReplicas can create Objects on the remote cluster."""
+        ModelReplicas can create Objects on the remote cluster.
+
+        When identity_ref is set, the ProviderConfig authenticates as the given
+        identity_type (the cloud IAM identity) on top of the kubeconfig instead
+        of relying on the kubeconfig's embedded credentials.
+        """
         cpc = k8scpcv1alpha1.ClusterProviderConfig(
             metadata=metav1.ObjectMeta(name=resource.child_name(_name(self.xr.metadata), "cluster-kubeconfig")),
             spec=k8scpcv1alpha1.Spec(
@@ -383,14 +400,14 @@ class Composer:
                 ),
             ),
         )
-        if sa_key:
+        if identity_ref:
             cpc.spec.identity = k8scpcv1alpha1.Identity(
-                type=_IDENTITY_TYPE_GCP,
+                type=identity_type,  # ty: ignore[invalid-argument-type]  # value comes from the XRD/GKE identity-type enums
                 source="Secret",
                 secretRef=k8scpcv1alpha1.SecretRef(
                     namespace=_NAMESPACE_SYSTEM,
-                    name=sa_key.name,
-                    key=sa_key.key,  # ty: ignore[invalid-argument-type]  # XRD defaults the secret key
+                    name=identity_ref.name,
+                    key=identity_ref.key,  # ty: ignore[invalid-argument-type]  # XRD defaults the secret key
                 ),
             )
         resource.update(

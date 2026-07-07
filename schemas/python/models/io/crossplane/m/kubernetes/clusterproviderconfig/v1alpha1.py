@@ -87,6 +87,7 @@ class Identity(BaseModel):
         'AzureWorkloadIdentityCredentials',
         'UpboundTokens',
         'AWSWebIdentityCredentials',
+        'NebiusServiceAccountCredentials',
     ]
     """
     Type of identity.

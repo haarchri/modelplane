@@ -46,9 +46,8 @@ spec:
                   Secrets used to authenticate to the target cluster. Typically
                   sourced from a GKECluster's status.secrets. All secrets must
                   be in the same namespace as this ServingStack. A Kubeconfig
-                  secret is required. If a cloud-specific credential secret is
-                  present (e.g. GCPServiceAccountKey), the ProviderConfigs
-                  will use it for identity-based authentication instead of
+                  secret is required. If a cloud identity secret is present, the
+                  serving stack authenticates as that identity instead of
                   relying on the kubeconfig's embedded credentials.
                 minItems: 1
                 maxItems: 8
@@ -63,11 +62,15 @@ spec:
                       type: string
                       description: >-
                         The type of credential this secret contains. Kubeconfig
-                        is required. Cloud-specific types are optional and
-                        determine how the ProviderConfigs authenticate.
+                        is required. Any other value is a cloud identity type;
+                        when present, the serving stack authenticates to the
+                        cluster as that identity instead of using the
+                        kubeconfig's embedded credentials.
                       enum:
                       - Kubeconfig
-                      - GCPServiceAccountKey
+                      - GoogleApplicationCredentials
+                      - AWSWebIdentityCredentials
+                      - NebiusServiceAccountCredentials
                     name:
                       type: string
                       description: Name of the Secret.

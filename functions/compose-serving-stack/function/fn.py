@@ -69,13 +69,10 @@ _RELEASE_NAME_PREFIX = "mp-"
 # writes status.addresses.
 _GATEWAY_READY_CEL = "has(object.status.addresses) && object.status.addresses.size() > 0"
 
-# Secret types that couple compose-gke-cluster (writer) to this function
-# (reader) via the InferenceCluster status.
+# Secret type that names the kubeconfig entry in the XR's secrets. Every other
+# entry's type is a provider identity type, which both ProviderConfigs stamp
+# verbatim as their identity.type.
 _SECRET_TYPE_KUBECONFIG = "Kubeconfig"
-_SECRET_TYPE_GCP_SA_KEY = "GCPServiceAccountKey"
-
-# Identity type for GCP service account credentials.
-_IDENTITY_TYPE_GCP = "GoogleApplicationCredentials"
 
 # Prometheus constants.
 _PROMETHEUS_NAMESPACE = "monitoring"
@@ -337,10 +334,10 @@ class Composer:
 
         kubeconfig_secret = next(s for s in xr_secrets if s.type == _SECRET_TYPE_KUBECONFIG)
 
-        # The kubeconfig provides the cluster endpoint and CA cert. If a
-        # cloud-specific credential secret is present, it's layered on as an
-        # identity block so the provider authenticates via the cloud's IAM
-        # instead of relying on whatever auth is baked into the kubeconfig.
+        # The kubeconfig provides the cluster endpoint and CA cert. If an
+        # identity secret is present, it's layered on as an identity block so the
+        # provider authenticates via the cloud's IAM instead of relying on
+        # whatever auth is baked into the kubeconfig.
         k8s_pc_spec = k8spcv1alpha1.Spec(
             credentials=k8spcv1alpha1.Credentials(
                 source="Secret",
@@ -362,27 +359,27 @@ class Composer:
             ),
         )
 
-        gcp_secret = next(
-            (s for s in xr_secrets if s.type == _SECRET_TYPE_GCP_SA_KEY),
+        identity_secret = next(
+            (s for s in xr_secrets if s.type != _SECRET_TYPE_KUBECONFIG),
             None,
         )
-        if gcp_secret:
+        if identity_secret:
             k8s_pc_spec.identity = k8spcv1alpha1.Identity(
-                type=_IDENTITY_TYPE_GCP,
+                type=identity_secret.type,  # ty: ignore[invalid-argument-type]  # non-Kubeconfig types are exactly the provider identity types
                 source="Secret",
                 secretRef=k8spcv1alpha1.SecretRef(
-                    name=gcp_secret.name,
+                    name=identity_secret.name,
                     namespace=_namespace(self.xr.metadata),
-                    key=gcp_secret.key,
+                    key=identity_secret.key,
                 ),
             )
             helm_pc_spec.identity = helmpcv1beta1.Identity(
-                type=_IDENTITY_TYPE_GCP,
+                type=identity_secret.type,  # ty: ignore[invalid-argument-type]  # non-Kubeconfig types are exactly the provider identity types
                 source="Secret",
                 secretRef=helmpcv1beta1.SecretRef(
-                    name=gcp_secret.name,
+                    name=identity_secret.name,
                     namespace=_namespace(self.xr.metadata),
-                    key=gcp_secret.key,
+                    key=identity_secret.key,
                 ),
             )
 

@@ -162,9 +162,9 @@ class Secret(BaseModel):
     """
     Name of the Secret.
     """
-    type: Literal['Kubeconfig', 'GCPServiceAccountKey']
+    type: Literal['Kubeconfig', 'GoogleApplicationCredentials']
     """
-    The type of credential this secret contains. Kubeconfig contains a kubeconfig file with the cluster endpoint and CA certificate. GCPServiceAccountKey contains a GCP service account JSON key that can authenticate to the cluster via GKE IAM.
+    The type of credential this secret contains. Kubeconfig contains a kubeconfig file with the cluster endpoint and CA certificate. GoogleApplicationCredentials contains a GCP service account JSON key that authenticates to the cluster via GKE IAM.
     """
 
 

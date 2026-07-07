@@ -21,11 +21,15 @@ spec:
         name: byo-cluster-kubeconfig
         key: kubeconfig
 
-      # Optional: a cloud identity Secret for pulling images from private
-      # registries or accessing cloud APIs from the remote cluster.
+      # Optional: a cloud identity Secret so Modelplane authenticates to the
+      # cluster via the cloud's IAM instead of a token baked into the
+      # kubeconfig. type selects the cloud identity and must match the cluster's
+      # cloud; it defaults to GoogleApplicationCredentials. For example, a
+      # Nebius managed cluster:
       # identitySecretRef:
       #   name: byo-cluster-sa-key
-      #   key: private_key
+      #   key: credentials.json
+      #   type: NebiusServiceAccountCredentials
 
   # Each pool's nodes must be labeled modelplane.ai/pool=<name> (here
   # modelplane.ai/pool=gpu-h100). The scheduler pins a worker to its pool by

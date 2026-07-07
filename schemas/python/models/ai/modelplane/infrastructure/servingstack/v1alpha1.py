@@ -76,9 +76,14 @@ class Secret(BaseModel):
     """
     Name of the Secret.
     """
-    type: Literal['Kubeconfig', 'GCPServiceAccountKey']
+    type: Literal[
+        'Kubeconfig',
+        'GoogleApplicationCredentials',
+        'AWSWebIdentityCredentials',
+        'NebiusServiceAccountCredentials',
+    ]
     """
-    The type of credential this secret contains. Kubeconfig is required. Cloud-specific types are optional and determine how the ProviderConfigs authenticate.
+    The type of credential this secret contains. Kubeconfig is required. Any other value is a cloud identity type; when present, the serving stack authenticates to the cluster as that identity instead of using the kubeconfig's embedded credentials.
     """
 
 
@@ -128,7 +133,7 @@ class Spec(BaseModel):
     """
     secrets: list[Secret] = Field(..., max_length=8, min_length=1)
     """
-    Secrets used to authenticate to the target cluster. Typically sourced from a GKECluster's status.secrets. All secrets must be in the same namespace as this ServingStack. A Kubeconfig secret is required. If a cloud-specific credential secret is present (e.g. GCPServiceAccountKey), the ProviderConfigs will use it for identity-based authentication instead of relying on the kubeconfig's embedded credentials.
+    Secrets used to authenticate to the target cluster. Typically sourced from a GKECluster's status.secrets. All secrets must be in the same namespace as this ServingStack. A Kubeconfig secret is required. If a cloud identity secret is present, the serving stack authenticates as that identity instead of relying on the kubeconfig's embedded credentials.
     """
     versions: Versions | None = None
     """

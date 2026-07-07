@@ -589,7 +589,9 @@ def _base_request(
                         spec=v1alpha1.Spec(
                             secrets=[
                                 v1alpha1.Secret(type="Kubeconfig", name="kube-secret", key="kubeconfig"),
-                                v1alpha1.Secret(type="GCPServiceAccountKey", name="sa-secret", key="private_key"),
+                                v1alpha1.Secret(
+                                    type="GoogleApplicationCredentials", name="sa-secret", key="private_key"
+                                ),
                             ],
                             nvidiaDriverRoot=nvidia_driver_root,
                         ),
@@ -645,6 +647,49 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             json_format.MessageToDict(got),
             "-want, +got",
         )
+
+    async def test_non_gcp_identity(self) -> None:
+        """A non-GCP identity secret stamps its own type on both ProviderConfigs.
+
+        The identity secret's type is the provider identity type verbatim, so a
+        Nebius (or any other cloud's) credential authenticates as that cloud
+        rather than being forced to GoogleApplicationCredentials.
+        """
+        req = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        v1alpha1.ServingStack(
+                            metadata=metav1.ObjectMeta(name="test-backend", namespace="test-ns"),
+                            spec=v1alpha1.Spec(
+                                secrets=[
+                                    v1alpha1.Secret(type="Kubeconfig", name="kube-secret", key="kubeconfig"),
+                                    v1alpha1.Secret(
+                                        type="NebiusServiceAccountCredentials",
+                                        name="nebius-secret",
+                                        key="credentials.json",
+                                    ),
+                                ],
+                            ),
+                        ).model_dump(exclude_none=True, mode="json")
+                    ),
+                ),
+            ),
+        )
+
+        got = await self.runner.RunFunction(req, None)
+        got_resources = json_format.MessageToDict(got).get("desired", {}).get("resources", {})
+        want_identity = {
+            "secretRef": {"key": "credentials.json", "name": "nebius-secret", "namespace": "test-ns"},
+            "source": "Secret",
+            "type": "NebiusServiceAccountCredentials",
+        }
+        for pc in ("provider-config-kubernetes", "provider-config-helm"):
+            self.assertEqual(
+                want_identity,
+                got_resources[pc]["resource"]["spec"]["identity"],
+                f"{pc} identity",
+            )
 
     async def test_second_pass(self) -> None:
         """Observed PCs ungate Helm releases, CRD objects, and gateway objects."""

@@ -77,6 +77,9 @@ spec:
                         description: >-
                           Optional reference to a Secret containing cloud
                           provider credentials for IAM-based authentication.
+                          The type selects which cloud identity the
+                          ProviderConfigs authenticate as, and must match the
+                          cloud the existing cluster runs on.
                         required: [name]
                         properties:
                           name:
@@ -88,6 +91,17 @@ spec:
                             default: private_key
                             minLength: 1
                             maxLength: 253
+                          type:
+                            type: string
+                            description: >-
+                              Cloud identity type the credential authenticates
+                              as. Must match the cloud the existing cluster runs
+                              on. Defaults to GoogleApplicationCredentials.
+                            default: GoogleApplicationCredentials
+                            enum:
+                            - GoogleApplicationCredentials
+                            - AWSWebIdentityCredentials
+                            - NebiusServiceAccountCredentials
                       cache:
                         type: object
                         description: >-

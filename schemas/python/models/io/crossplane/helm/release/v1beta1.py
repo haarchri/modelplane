@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, constr
 
 from ....k8s.apimachinery.pkg.apis.meta import v1
 
@@ -69,6 +69,12 @@ class PullSecretRef(BaseModel):
 
 
 class Chart(BaseModel):
+    digest: constr(pattern=r'^sha256:[a-f0-9]{64}$') | None = None
+    """
+    Digest is the OCI image digest in the format "sha256:abc123..."
+    Only supported for OCI registries. When specified, the chart will be pulled by digest.
+    Can be used alone or in combination with Version. Optional.
+    """
     name: str | None = None
     """
     Name of Helm chart, required if ChartSpec.URL not set
@@ -89,7 +95,10 @@ class Chart(BaseModel):
     """
     version: str | None = None
     """
-    Version of Helm chart, late initialized with latest version if not set
+    Version of Helm chart. Optional when Digest is specified.
+    If not set and Digest is not specified, gets late initialized with the latest available version.
+    If not set and Digest is specified, version is NOT late initialized to avoid spec drift.
+    The actual deployed version is always available in status.atProvider.version for observability.
     """
 
 
@@ -158,6 +167,10 @@ class ForProvider(BaseModel):
     """
     InsecureSkipTLSVerify skips tls certificate checks for the chart download
     """
+    maxHistory: int | None = 20
+    """
+    MaxHistory limits the maximum number of revisions saved per release. Use 0 for no limit.
+    """
     namespace: str
     """
     Namespace to install the release into.
@@ -178,6 +191,14 @@ class ForProvider(BaseModel):
     skipCreateNamespace: bool | None = None
     """
     SkipCreateNamespace won't create the namespace for the release. This requires the namespace to already exist.
+    """
+    takeOwnership: bool | None = None
+    """
+    TakeOwnership ignores Helm ownership validation and adopts pre-existing releases.
+    This is a ONE-TIME operation: after the first successful deployment, the flag is recorded
+    in status.atProvider.ownershipTaken and subsequent reconciles use normal Helm validation.
+    This prevents silent adoption of unrelated resources during chart upgrades.
+    Use this field to migrate manually-deployed Helm releases into Crossplane management.
     """
     values: dict[str, Any] | None = None
     valuesFrom: list[ValuesFromItem] | None = None
@@ -285,11 +306,25 @@ class Spec(BaseModel):
 
 
 class AtProvider(BaseModel):
+    digest: str | None = None
+    """
+    Digest is the last successfully deployed chart digest (for OCI charts only).
+    """
+    ownershipTaken: bool | None = None
+    """
+    OwnershipTaken indicates that spec.forProvider.takeOwnership was used for initial adoption.
+    Once set to true, subsequent reconciles use normal Helm validation instead of takeOwnership,
+    preventing silent adoption of unrelated resources during upgrades.
+    """
     releaseDescription: str | None = None
     revision: int | None = None
     state: str | None = None
     """
     Status is the status of a release
+    """
+    version: str | None = None
+    """
+    Version is the actual deployed chart version.
     """
 
 

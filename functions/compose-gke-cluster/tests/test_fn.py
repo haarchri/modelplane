@@ -95,7 +95,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                                 "key": "kubeconfig",
                                             },
                                             {
-                                                "type": "GCPServiceAccountKey",
+                                                "type": "GoogleApplicationCredentials",
                                                 "name": "test-cluster-sa-key-3295c",
                                                 "key": "private_key",
                                             },
@@ -446,7 +446,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                                 "key": "kubeconfig",
                                             },
                                             {
-                                                "type": "GCPServiceAccountKey",
+                                                "type": "GoogleApplicationCredentials",
                                                 "name": "test-cluster-sa-key-3295c",
                                                 "key": "private_key",
                                             },
