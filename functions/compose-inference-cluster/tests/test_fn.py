@@ -1139,7 +1139,11 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 "cache": {"storageClassName": "modelplane-rwx"},
                 "secrets": [
                     {"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"},
-                    {"type": "GoogleApplicationCredentials", "name": "test-cluster-sa-key-fghij", "key": "credentials.json"},
+                    {
+                        "type": "GoogleApplicationCredentials",
+                        "name": "test-cluster-sa-key-fghij",
+                        "key": "credentials.json",
+                    },
                 ],
             },
         }
