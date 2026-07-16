@@ -152,12 +152,18 @@
       );
     };
 
-  # Push the Crossplane project to a registry. Uses a dev version tag unless
-  # --tag is passed, e.g.: nix run .#push -- --tag v0.1.0
+  # Push the Crossplane project to a registry, then append the package's
+  # Upbound Marketplace extensions to the pushed image. Uses a dev version tag
+  # unless --tag is passed, e.g.: nix run .#push -- --tag v0.1.0
+  #
+  # The Marketplace renders package assets from a well-known extensions image
+  # layout: icons/ (committed under extensions/), readme/readme.md (copied
+  # from README.md), and release-notes/ (included when a release_notes.md
+  # exists in the working directory - CI writes it on release runs).
   push =
     {
       crossplane,
-      dockerCredentialUp,
+      upbound,
       version,
     }:
     {
@@ -166,9 +172,14 @@
       program = pkgs.lib.getExe (
         pkgs.writeShellApplication {
           name = "modelplane-push";
+          # upbound provides both docker-credential-up, which the Crossplane
+          # CLI uses to authenticate the push, and up, which appends the
+          # extensions.
           runtimeInputs = [
             crossplane
-            dockerCredentialUp
+            upbound
+            pkgs.coreutils
+            pkgs.yq-go
           ];
           inheritPath = false;
           text = ''
@@ -177,6 +188,26 @@
               set -- --tag "${version}" "$@"
             fi
             crossplane project push "$@"
+
+            tag=""
+            while [ $# -gt 1 ]; do
+              if [ "$1" = "--tag" ]; then tag="$2"; fi
+              shift
+            done
+            repository=$(yq '.spec.repository' crossplane-project.yaml)
+
+            extensions=$(mktemp -d)
+            trap 'rm -rf "$extensions"' EXIT
+            cp -R extensions/. "$extensions/"
+            mkdir -p "$extensions/readme"
+            cp README.md "$extensions/readme/readme.md"
+            if [ -f release_notes.md ]; then
+              mkdir -p "$extensions/release-notes"
+              cp release_notes.md "$extensions/release-notes/"
+            fi
+
+            echo "Appending Marketplace extensions to $repository:$tag"
+            up alpha xpkg append "$repository:$tag" --extensions-root "$extensions"
           '';
         }
       );

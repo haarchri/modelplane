@@ -95,6 +95,18 @@ jobs:
           username: ${{ secrets.UP_ROBOT_ID }}
           password: ${{ secrets.UP_ROBOT_TOKEN }}
 
+      # On a release run, fetch the GitHub release's notes so the push app
+      # embeds them in the package's Marketplace extensions. Ordinary runs
+      # skip this; the push app only appends the notes when the file exists.
+      - name: Generate release notes
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release view "${TAG}" --json body -q .body > release_notes.md || true
+          [ -s release_notes.md ] || rm -f release_notes.md
+
       # With a tag input (a release) push that exact version; otherwise push a
       # dev version the push app derives from git metadata.
       - name: Build and Push

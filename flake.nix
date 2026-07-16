@@ -167,7 +167,7 @@
           };
           push = apps.push {
             inherit crossplane version;
-            dockerCredentialUp = pkgs.upbound;
+            inherit (pkgs) upbound;
           };
           run = apps.run {
             inherit crossplane functionsPkg;

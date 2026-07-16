@@ -77,7 +77,10 @@ let
     let
       targetSystem = archToNixSystem.${arch};
       targetPkgs =
-        if targetSystem == pkgs.system then pkgs else import pkgs.path { system = targetSystem; };
+        if targetSystem == pkgs.stdenv.hostPlatform.system then
+          pkgs
+        else
+          import pkgs.path { system = targetSystem; };
     in
     {
       inherit targetPkgs;
