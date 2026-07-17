@@ -1,0 +1,12 @@
+# The cache the engine serves from, hydrated once per matched cluster. The AWQ
+# quant repo is public, so no authSecret is needed.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelCache
+metadata:
+  name: qwen-72b-awq
+  namespace: ml-team
+spec:
+  source: HuggingFace
+  huggingFace:
+    repo: Qwen/Qwen2.5-72B-Instruct-AWQ
+    sizeGiB: 150

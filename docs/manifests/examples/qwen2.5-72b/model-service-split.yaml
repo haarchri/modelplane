@@ -1,0 +1,21 @@
+# Splits the service's traffic between the two platforms. Each entry pairs the
+# deployment label with the cluster label Modelplane puts on every endpoint, and
+# the weights fix each side's share of requests regardless of how many replicas
+# match. 50/50 sends both GPUs the same workload; shift the ratio to favor one.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelService
+metadata:
+  name: qwen-72b
+  namespace: ml-team
+spec:
+  endpoints:
+  - weight: 50
+    selector:
+      matchLabels:
+        modelplane.ai/deployment: qwen-72b
+        modelplane.ai/cluster: aks-a100-single
+  - weight: 50
+    selector:
+      matchLabels:
+        modelplane.ai/deployment: qwen-72b
+        modelplane.ai/cluster: nebius-h100-single
