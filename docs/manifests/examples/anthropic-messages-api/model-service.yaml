@@ -1,0 +1,16 @@
+# Exposes the qwen3-8b deployment as a single URL. The route matches the
+# /<namespace>/<service>/ prefix and preserves the path below it, so the engine's
+# Anthropic Messages API at .../v1/messages rides the same address as its
+# OpenAI-compatible .../v1/chat/completions. Read the public address from
+# status.address:
+#   kubectl get ms qwen3-8b -n ml-team -o jsonpath='{.status.address}'
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelService
+metadata:
+  name: qwen3-8b
+  namespace: ml-team
+spec:
+  endpoints:
+  - selector:
+      matchLabels:
+        modelplane.ai/deployment: qwen3-8b
