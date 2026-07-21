@@ -751,6 +751,26 @@ class TestDisaggregated(unittest.TestCase):
         self.assertNotIn("nonCachedTokens: 0", cfg)
         self.assertNotIn("prepareDataPlugins", cfg)
 
+    def test_epp_and_sidecar_images_and_config_group_are_pinned(self) -> None:
+        """Lock the picker + sidecar images and the EndpointPickerConfig API group.
+
+        Nothing else asserts these, so a wrong tag/registry path or a stale config
+        group passes CI and only surfaces as an EPP/sidecar crashloop at deploy.
+        These are deliberate literals, not routing._* constants: comparing to the
+        constant would be tautological (it can't catch a typo in the constant), and
+        a literal forces a bump to show up here and be reviewed.
+        """
+        out = self._apply()
+        epp = out["epp"].spec.forProvider.manifest["spec"]["template"]["spec"]["containers"]
+        self.assertEqual(
+            next(c["image"] for c in epp if c["name"] == "epp"),
+            "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0",
+        )
+        sidecar = next(c for c in self._serving_pod(out, "decode")["spec"]["containers"] if c["name"] == "pd-sidecar")
+        self.assertEqual(sidecar["image"], "ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.9.0")
+        cfg = out["epp-config"].spec.forProvider.manifest["data"]["epp-config.yaml"]
+        self.assertIn("apiVersion: llm-d.ai/v1alpha1", cfg)
+
     def test_epp_role_watches_inferenceobjectives(self) -> None:
         """The picker watches InferenceObjectives (GIE x-k8s.io group); the Role must allow it."""
         rules = self._apply()["epp-role"].spec.forProvider.manifest["rules"]
@@ -888,6 +908,21 @@ class TestUnifiedRouting(unittest.TestCase):
         self.assertIn("approx-prefix-cache-producer", cfg)
         self.assertNotIn("prefill", cfg)
         self.assertNotIn("decider", cfg)
+
+    def test_epp_image_and_config_group_are_pinned(self) -> None:
+        """Lock the picker image and the EndpointPickerConfig API group for the
+        unified path too. A deliberate literal (not routing._EPP_IMAGE) so a wrong
+        tag/registry or a stale config group is caught in review, not as a
+        deploy-time crashloop. Unified has no sidecar, so only the EPP is checked.
+        """
+        out = self._apply()
+        epp = out["epp"].spec.forProvider.manifest["spec"]["template"]["spec"]["containers"]
+        self.assertEqual(
+            next(c["image"] for c in epp if c["name"] == "epp"),
+            "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0",
+        )
+        cfg = out["epp-config"].spec.forProvider.manifest["data"]["epp-config.yaml"]
+        self.assertIn("apiVersion: llm-d.ai/v1alpha1", cfg)
 
     def test_epp_pod_carries_config_checksum(self) -> None:
         """The EPP reads its config once at startup, so a config change must roll
