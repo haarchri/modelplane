@@ -1,0 +1,37 @@
+# InferenceClass for a single-H100 Nebius shape, serving Qwen3-8B.
+#
+# Nebius sizes nodes by platform + preset rather than an instance type; the
+# preset determines the GPU, vCPU, and memory shape of each node. The devices
+# block describes what a node of this class has, DRA-style - used by the
+# scheduler to match models to clusters, and to form DRA ResourceClaims for
+# claim: DRA devices. An 8B model needs a fraction of an H100, so this shape has
+# ample headroom; a single L40S (gpu-l40s-a) is the economical alternative.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceClass
+metadata:
+  name: h100-1x
+spec:
+  description: "Nebius gpu-h100-sxm, 1x NVIDIA H100 80GB"
+  provisioning:
+    provider: Nebius
+    nebius:
+      platform: gpu-h100-sxm
+      preset: 1gpu-16vcpu-200gb
+      diskSizeGb: 200
+      driversPreset: cuda13.0
+      accelerator:
+        type: nvidia-h100
+        count: 1
+  devices:
+  - name: gpu
+    claim: DRA
+    driver: gpu.nvidia.com
+    deviceClassName: gpu.nvidia.com
+    count: 1
+    attributes:
+      architecture: { string: Hopper }
+      cudaComputeCapability: { version: "9.0.0" }
+    capacity:
+      # The H100 80GB's real usable VRAM, what the NVIDIA DRA driver reports,
+      # not its nominal 80GB. A nodeSelector asking for >= 80Gi would never bind.
+      memory: { value: "81559Mi" }

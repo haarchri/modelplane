@@ -1,0 +1,67 @@
+# Qwen3-8B served on a single NVIDIA H100 (Nebius) by vLLM, exposed on the
+# Anthropic Messages API. vLLM's server registers /v1/messages (and
+# /v1/messages/count_tokens) alongside its OpenAI routes with no extra flag, so
+# this is an ordinary serve: the Anthropic surface comes for free, and
+# Modelplane preserves the path below the service prefix to reach it.
+#
+# The tool-calling flags are what make it usable from Claude Code, not decoration:
+#
+#   --enable-auto-tool-choice with
+#   --tool-call-parser=hermes        parse the model's tool calls so Claude Code's
+#                                    tool use works (qwen3_xml is for Qwen3-Coder,
+#                                    not this dense model). Qwen3's tool-use
+#                                    template ships in the tokenizer, so no
+#                                    --chat-template is needed.
+#   --reasoning-parser=qwen3 with
+#   --default-chat-template-kwargs   turns thinking off. Qwen3 thinks by default,
+#                                    burying a one-line answer under a <think>
+#                                    block and forbidding greedy decode.
+#   --max-model-len=40960            Qwen3-8B's native context (past it needs YaRN).
+#                                    Claude Code reserves 32000 output tokens, so a
+#                                    smaller window 500s ("max_completion_tokens
+#                                    cannot be greater than max_model_len", then
+#                                    input+output overflow). The client must also
+#                                    cap output with CLAUDE_CODE_MAX_OUTPUT_TOKENS
+#                                    so input+output fit here. H100 has KV room.
+#   --gpu-memory-utilization         headroom, not correctness.
+#
+# The v0.23.0 image is >0.17.1, so vLLM handles Claude Code's attribution header
+# without breaking prefix caching. No --port or --host: Modelplane's routing
+# expects the engine on its default :8000 with a /health probe, and passes args
+# through verbatim.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelDeployment
+metadata:
+  name: qwen3-8b
+  namespace: ml-team
+spec:
+  replicas: 1
+  template:
+    spec:
+      # No clusterSelector: the single Nebius cluster is matched on device
+      # capacity alone.
+      engines:
+      - name: qwen3-8b
+        members:
+        - role: Standalone
+          nodeSelector:
+            devices:
+            - name: gpu
+              count: 1
+              selectors:
+              - cel: |
+                  device.capacity["gpu.nvidia.com"].memory.compareTo(quantity("20Gi")) >= 0
+          template:
+            spec:
+              containers:
+              - name: engine
+                image: vllm/vllm-openai:v0.23.0
+                args:
+                - "--model=Qwen/Qwen3-8B"
+                - "--served-model-name=qwen"
+                - "--max-model-len=40960"
+                - "--gpu-memory-utilization=0.92"
+                - "--reasoning-parser=qwen3"
+                - "--default-chat-template-kwargs={\"enable_thinking\": false}"
+                - "--enable-auto-tool-choice"
+                - "--tool-call-parser=hermes"

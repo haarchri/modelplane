@@ -57,8 +57,8 @@ def _namespace(meta: metav1.ObjectMeta | None) -> str:
     return meta.namespace
 
 
-_EPP_IMAGE = "ghcr.io/llm-d/llm-d-inference-scheduler:v0.8.0"
-_SIDECAR_IMAGE = "ghcr.io/llm-d/llm-d-routing-sidecar:v0.8.0"
+_EPP_IMAGE = "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0"
+_SIDECAR_IMAGE = "ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.9.0"
 
 # ConfigMap key and mount-path filename for each strategy's EPP config.
 # ConfigMap key and mount-path filename for the EPP config. One name for both
@@ -109,7 +109,7 @@ _LABEL_INFERENCE_SERVING = "llm-d.ai/inference-serving"
 # silently degrades (#179). It's derived best-effort from the engine flags via
 # _kv_block_size() (BLOCK_SIZE_TOKENS placeholder), defaulting to vLLM's 16.
 _EPP_CONFIG_TEMPLATE = """\
-apiVersion: inference.networking.x-k8s.io/v1alpha1
+apiVersion: llm-d.ai/v1alpha1
 kind: EndpointPickerConfig
 plugins:
 - type: approx-prefix-cache-producer
@@ -160,7 +160,7 @@ schedulingProfiles:
 # diverge, when the queue score breaks the tie. It's a starting default, not a
 # tuned one.
 _UNIFIED_EPP_CONFIG_TEMPLATE = """\
-apiVersion: inference.networking.x-k8s.io/v1alpha1
+apiVersion: llm-d.ai/v1alpha1
 kind: EndpointPickerConfig
 plugins:
 - type: approx-prefix-cache-producer
