@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   crawl:
+    if: secrets.ALGOLIA_ADMIN_KEY != ''
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout

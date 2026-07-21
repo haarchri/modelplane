@@ -87,8 +87,12 @@ jobs:
         with:
           use-flakehub: false
 
+      - name: Build
+        run: nix run .#build --print-build-logs
+
       # The Crossplane CLI uses Docker's credential store for OCI pushes.
       - name: Login to registry
+        if: secrets.UP_ROBOT_ID != ''
         uses: docker/login-action@v3
         with:
           registry: xpkg.upbound.io
@@ -109,9 +113,9 @@ jobs:
 
       # With a tag input (a release) push that exact version; otherwise push a
       # dev version the push app derives from git metadata.
-      - name: Build and Push
+      - name: Push
+        if: secrets.UP_ROBOT_ID != ''
         run: |
-          nix run .#build --print-build-logs
           if [ -n "${TAG}" ]; then
             nix run .#push --print-build-logs -- --tag "${TAG}"
           else
