@@ -1,0 +1,99 @@
+name: E2E
+
+# The local two-cluster e2e in e2e/ is heavy — it stands up two kind clusters
+# and the full serving stack (cert-manager, Envoy Gateway/AI Gateway, GAIE,
+# kube-prometheus-stack, NFD, DRA) and waits for it to reconcile, ~15-20 min. The
+# time is that install and reconcile, not model weights (the engine is a mock).
+# So it doesn't run on every push: add the `test-e2e` label to a PR to run it (it
+# re-runs on each push while the label is set), or trigger it manually. Unlike
+# the package push, it needs no cloud or registry credentials.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch: {}
+
+# Cancel in-progress runs for the same PR. Runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    # Run on manual dispatch, when the test-e2e label is added, or on a push
+    # (synchronize/opened/reopened) while the PR carries it. Scoping the
+    # `labeled` event to test-e2e keeps adding any *other* label from firing a
+    # fresh ~20 min run.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.action == 'labeled' && github.event.label.name == 'test-e2e')
+      || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'test-e2e'))
+    runs-on: ubuntu-24.04
+    # Generous: a cold Nix cache (the Actions cache throttles) rebuilds the
+    # function images, on top of the two-cluster bring-up and serving-stack
+    # install. 45m was too tight on a cold run.
+    timeout-minutes: 60
+
+    steps:
+      # Two kind clusters and the serving stack need more disk than the runner
+      # has free by default, the same reason the push-package job reclaims space.
+      - name: Cleanup Disk
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          tool-cache: true
+          swap-storage: false
+          large-packages: false
+          docker-images: false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: log-lines = 500
+
+      # See ci.yml for why use-flakehub is off.
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+
+      # The exact command a developer runs locally (--print-build-logs is only CI
+      # verbosity), so a green run here and a green run on a laptop mean the same
+      # thing. It brings up both clusters, deploys the mock model, waits for the
+      # ModelService, and asserts a live 200 — exiting non-zero on any failure.
+      - name: Run e2e
+        run: nix run .#e2e --print-build-logs -- --verify
+
+      # On failure, capture what the clusters looked like before teardown.
+      # `kind export logs` dumps every pod's logs (crossplane, providers, the
+      # serving stack); the status snapshots make triage quick.
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p e2e-logs
+          nix develop --command bash -c '
+            kind export logs e2e-logs/control-plane --name modelplane-e2e-local || true
+            kind export logs e2e-logs/workload --name modelplane-e2e-workload || true
+            kubectl --context kind-modelplane-e2e-local get composite -o wide > e2e-logs/composites.txt 2>&1 || true
+            kubectl --context kind-modelplane-e2e-local -n ml-team get modeldeployment,modelreplica,modelendpoint,modelservice -o yaml > e2e-logs/model.yaml 2>&1 || true
+          '
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics
+          path: e2e-logs
+          if-no-files-found: ignore
+
+      # Always tear both clusters down, even on failure or cancellation.
+      - name: Teardown
+        if: always()
+        run: nix run .#e2e -- --clean
