@@ -10,7 +10,18 @@ from pydantic import AwareDatetime, BaseModel, Field, conint, constr
 from ....io.k8s.apimachinery.pkg.apis.meta import v1
 
 
+class Credentials(BaseModel):
+    name: constr(min_length=1, max_length=253) | None = 'default'
+    type: Literal['ProviderConfig', 'ClusterProviderConfig'] | None = (
+        'ClusterProviderConfig'
+    )
+
+
 class Aks(BaseModel):
+    credentials: Credentials | None = None
+    """
+    Azure ProviderConfig or ClusterProviderConfig used to authenticate to the Azure API. Defaults to the ClusterProviderConfig named default.
+    """
     kubernetesVersion: str | None = '1.34'
     """
     AKS cluster Kubernetes version. Defaults to a version where Dynamic Resource Allocation (how GPUs bind to pods) is generally available.
@@ -22,6 +33,10 @@ class Aks(BaseModel):
 
 
 class Eks(BaseModel):
+    credentials: Credentials | None = None
+    """
+    AWS ProviderConfig or ClusterProviderConfig used to authenticate to the AWS API. Defaults to the ClusterProviderConfig named default.
+    """
     kubernetesVersion: str | None = '1.36'
     """
     EKS cluster Kubernetes version. Defaults to a version where Dynamic Resource Allocation (how GPUs bind to pods) is generally available.
@@ -76,12 +91,19 @@ class Existing(BaseModel):
 
 
 class Gke(BaseModel):
+    credentials: Credentials | None = None
+    """
+    GCP ProviderConfig or ClusterProviderConfig used to authenticate to the GCP API. Defaults to the ClusterProviderConfig named default.
+    """
     kubernetesVersion: str | None = '1.35'
-    project: constr(min_length=6, max_length=30)
     region: constr(min_length=1, max_length=32)
 
 
 class Nebius(BaseModel):
+    credentials: Credentials | None = None
+    """
+    Nebius ProviderConfig or ClusterProviderConfig used to authenticate to the Nebius API. Defaults to the ClusterProviderConfig named default.
+    """
     kubernetesVersion: str | None = '1.34'
     """
     mk8s cluster Kubernetes version. Defaults to a version where Dynamic Resource Allocation (DRA) is generally available.
@@ -107,7 +129,7 @@ class Cluster(BaseModel):
     """
     nebius: Nebius | None = None
     """
-    Nebius mk8s cluster configuration. Required when source is Nebius; may be empty, since every field has a default. The cluster is created in the project the Nebius ClusterProviderConfig named default sets as its projectID; Nebius projects are bound to a region, so the project also determines where the cluster runs.
+    Nebius mk8s cluster configuration. Required when source is Nebius; may be empty, since every field has a default. The cluster is created in the project the referenced ProviderConfig or ClusterProviderConfig sets as its projectID; Nebius projects are bound to a region, so the project also determines where the cluster runs.
     """
     source: Literal['GKE', 'EKS', 'AKS', 'Nebius', 'Existing']
     """

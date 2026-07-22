@@ -23,7 +23,7 @@ and provider-helm to reach the cluster.
 from typing import Literal
 
 import grpc
-from crossplane.function import logging, resource, response
+from crossplane.function import logging, request, resource, response
 from crossplane.function.proto.v1 import run_function_pb2 as fnv1
 from crossplane.function.proto.v1 import run_function_pb2_grpc as grpcv1
 from models.ai.modelplane.infrastructure.gkecluster import v1alpha1
@@ -39,10 +39,12 @@ from models.io.upbound.m.gcp.cloudplatform.serviceaccount import v1beta1 as sav1
 from models.io.upbound.m.gcp.cloudplatform.serviceaccountkey import (
     v1beta1 as sakeyv1beta1,
 )
+from models.io.upbound.m.gcp.clusterproviderconfig import v1beta1 as gcpcpcv1beta1
 from models.io.upbound.m.gcp.compute.network import v1beta1 as networkv1beta1
 from models.io.upbound.m.gcp.compute.subnetwork import v1beta1 as subnetv1beta1
 from models.io.upbound.m.gcp.container.cluster import v1beta1 as clusterv1beta1
 from models.io.upbound.m.gcp.container.nodepool import v1beta1 as nodepoolv1beta1
+from models.io.upbound.m.gcp.providerconfig import v1beta1 as gcppcv1beta1
 
 # Subnet secondary range names. These couple the subnet definition to
 # the cluster's ipAllocationPolicy — both must use the same names.
@@ -160,8 +162,74 @@ class Composer:
         self.req = req
         self.rsp = rsp
         self.xr = v1alpha1.GKECluster(**resource.struct_to_dict(req.observed.composite.resource))
+        self.project: str | None = None
+
+    def _cred_kind(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.type if creds and creds.type else "ClusterProviderConfig"
+
+    def _cred_name(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.name if creds and creds.name else "default"
+
+    def resolve_project(self) -> str | None:
+        """Fetch the GCP provider config and return its projectID.
+
+        The GCP provider uses projectID from the ProviderConfig/ClusterProviderConfig
+        as the default for all managed resources, so we only need the value
+        explicitly for the workloadPool string in the GKE cluster spec.
+
+        When the ProviderConfig is transiently gone but the cluster already
+        exists, falls back to the project embedded in the observed cluster's
+        workloadPool so a mistakenly deleted config doesn't tear down the
+        cluster. A recreated config takes over on the next reconcile."""
+        cred_kind = self._cred_kind()
+        cred_name = self._cred_name()
+        response.require_resources(
+            self.rsp,
+            name="gcp-provider-config",
+            api_version="gcp.m.upbound.io/v1beta1",
+            kind=cred_kind,
+            match_name=cred_name,
+        )
+        d = request.get_required_resource(self.req, "gcp-provider-config")
+        if d is None:
+            project = self._observed_project()
+            if project:
+                response.normal(
+                    self.rsp,
+                    f"GCP {cred_kind} {cred_name} not found; keeping the project the composed cluster already uses",
+                )
+                return project
+            response.normal(self.rsp, f"Waiting for GCP {cred_kind} {cred_name}")
+            return None
+        if cred_kind == "ClusterProviderConfig":
+            pc = gcpcpcv1beta1.ClusterProviderConfig.model_validate(d)
+        else:
+            pc = gcppcv1beta1.ProviderConfig.model_validate(d)
+        return pc.spec.projectID
+
+    def _observed_project(self) -> str | None:
+        """Read the GCP project from the observed GKE Cluster's workloadPool.
+
+        Format: {project}.svc.id.goog — None before the cluster is observed."""
+        observed = self.req.observed.resources.get("cluster")
+        if not observed:
+            return None
+        cluster = clusterv1beta1.Cluster.model_validate(resource.struct_to_dict(observed.resource))
+        if not cluster.spec or not cluster.spec.forProvider:
+            return None
+        wid = cluster.spec.forProvider.workloadIdentityConfig
+        if not wid or not wid.workloadPool:
+            return None
+        suffix = ".svc.id.goog"
+        pool = wid.workloadPool
+        return pool[: -len(suffix)] if pool.endswith(suffix) else None
 
     def compose(self) -> None:
+        self.project = self.resolve_project()
+        if not self.project:
+            return
         self.compose_network()
         self.compose_filestore_api()
         self.compose_subnet()
@@ -179,8 +247,11 @@ class Composer:
             self.rsp.desired.resources["network"],
             networkv1beta1.Network(
                 spec=networkv1beta1.Spec(
+                    providerConfigRef=networkv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=networkv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         autoCreateSubnetworks=False,
                     ),
                 ),
@@ -195,8 +266,11 @@ class Composer:
             self.rsp.desired.resources["projectservice-filestore"],
             projectsvcv1beta1.ProjectService(
                 spec=projectsvcv1beta1.Spec(
+                    providerConfigRef=projectsvcv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=projectsvcv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         service="file.googleapis.com",
                         disableOnDestroy=False,
                     ),
@@ -211,8 +285,11 @@ class Composer:
             self.rsp.desired.resources["subnet"],
             subnetv1beta1.Subnetwork(
                 spec=subnetv1beta1.Spec(
+                    providerConfigRef=subnetv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=subnetv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         region=self.xr.spec.region,
                         networkSelector=subnetv1beta1.NetworkSelector(
                             matchControllerRef=True,
@@ -238,8 +315,11 @@ class Composer:
             self.rsp.desired.resources["cluster"],
             clusterv1beta1.Cluster(
                 spec=clusterv1beta1.Spec(
+                    providerConfigRef=clusterv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=clusterv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         location=self.xr.spec.region,
                         deletionProtection=False,
                         removeDefaultNodePool=True,
@@ -259,7 +339,7 @@ class Composer:
                             channel="REGULAR",
                         ),
                         workloadIdentityConfig=clusterv1beta1.WorkloadIdentityConfig(
-                            workloadPool=f"{self.xr.spec.project}.svc.id.goog",
+                            workloadPool=f"{self.project}.svc.id.goog",
                         ),
                         # Enable the Filestore CSI driver addon so the
                         # modelplane-rwx StorageClass has a provisioner. Without
@@ -311,8 +391,11 @@ class Composer:
 
             np = nodepoolv1beta1.NodePool(
                 spec=nodepoolv1beta1.Spec(
+                    providerConfigRef=nodepoolv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=nodepoolv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         location=self.xr.spec.region,
                         clusterSelector=nodepoolv1beta1.ClusterSelector(
                             matchControllerRef=True,
@@ -341,8 +424,11 @@ class Composer:
             self.rsp.desired.resources[f"nodepool-{_SYSTEM_POOL_NAME}"],
             nodepoolv1beta1.NodePool(
                 spec=nodepoolv1beta1.Spec(
+                    providerConfigRef=nodepoolv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=nodepoolv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         location=self.xr.spec.region,
                         clusterSelector=nodepoolv1beta1.ClusterSelector(
                             matchControllerRef=True,
@@ -370,8 +456,11 @@ class Composer:
             self.rsp.desired.resources["service-account"],
             sav1beta1.ServiceAccount(
                 spec=sav1beta1.Spec(
+                    providerConfigRef=sav1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sav1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         displayName=f"Crossplane GKECluster {_name(self.xr.metadata)}",
                     ),
                 ),
@@ -382,6 +471,10 @@ class Composer:
             self.rsp.desired.resources["service-account-key"],
             sakeyv1beta1.ServiceAccountKey(
                 spec=sakeyv1beta1.Spec(
+                    providerConfigRef=sakeyv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sakeyv1beta1.ForProvider(
                         serviceAccountIdSelector=sakeyv1beta1.ServiceAccountIdSelector(
                             matchControllerRef=True,
@@ -405,8 +498,11 @@ class Composer:
             self.rsp.desired.resources["iam-binding"],
             iamv1beta1.ProjectIAMMember(
                 spec=iamv1beta1.Spec(
+                    providerConfigRef=iamv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=iamv1beta1.ForProvider(
-                        project=self.xr.spec.project,
                         role="roles/container.admin",
                         member=f"serviceAccount:{sa_email}",
                     ),

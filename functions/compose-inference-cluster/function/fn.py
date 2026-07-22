@@ -566,9 +566,10 @@ class Composer:
     def compose_gke_cluster(self, gke: v1alpha1.Gke) -> None:
         """Compose a GKECluster XR.
 
-        Combines the cluster-level config (project, region) with the
-        GPU pools derived from the user's node pools + referenced classes.
-        The system pool is injected by compose-gke-cluster.
+        Combines the cluster-level config (region) with the GPU pools derived
+        from the user's node pools + referenced classes. The project is derived
+        by compose-gke-cluster from the referenced ProviderConfig. The system
+        pool is injected by compose-gke-cluster.
         """
         gke_node_pools: list[gkev1alpha1.NodePool] = []
 
@@ -605,6 +606,16 @@ class Composer:
                 )
             )
 
+        gke_spec = gkev1alpha1.Spec(
+            region=gke.region,
+            kubernetesVersion=gke.kubernetesVersion,
+            nodePools=gke_node_pools,
+        )
+        if gke.credentials:
+            gke_spec.credentials = gkev1alpha1.Credentials(
+                type=gke.credentials.type,
+                name=gke.credentials.name,
+            )
         resource.update(
             self.rsp.desired.resources["gke-cluster"],
             gkev1alpha1.GKECluster(
@@ -612,12 +623,7 @@ class Composer:
                     name=_name(self.xr.metadata),
                     namespace=_NAMESPACE_SYSTEM,
                 ),
-                spec=gkev1alpha1.Spec(
-                    project=gke.project,
-                    region=gke.region,
-                    kubernetesVersion=gke.kubernetesVersion,
-                    nodePools=gke_node_pools,
-                ),
+                spec=gke_spec,
             ),
         )
 
@@ -672,6 +678,16 @@ class Composer:
                 node_pool.fabric = pool.fabric.type
             eks_node_pools.append(node_pool)
 
+        eks_spec = eksv1alpha1.Spec(
+            region=eks.region,
+            kubernetesVersion=eks.kubernetesVersion,
+            nodePools=eks_node_pools,
+        )
+        if eks.credentials:
+            eks_spec.credentials = eksv1alpha1.Credentials(
+                type=eks.credentials.type,
+                name=eks.credentials.name,
+            )
         resource.update(
             self.rsp.desired.resources["eks-cluster"],
             eksv1alpha1.EKSCluster(
@@ -679,11 +695,7 @@ class Composer:
                     name=_name(self.xr.metadata),
                     namespace=_NAMESPACE_SYSTEM,
                 ),
-                spec=eksv1alpha1.Spec(
-                    region=eks.region,
-                    kubernetesVersion=eks.kubernetesVersion,
-                    nodePools=eks_node_pools,
-                ),
+                spec=eks_spec,
             ),
         )
 
@@ -737,6 +749,16 @@ class Composer:
                 node_pool.fabric = pool.fabric.type
             aks_node_pools.append(node_pool)
 
+        aks_spec = aksv1alpha1.Spec(
+            location=aks.location,
+            kubernetesVersion=aks.kubernetesVersion,
+            nodePools=aks_node_pools,
+        )
+        if aks.credentials:
+            aks_spec.credentials = aksv1alpha1.Credentials(
+                type=aks.credentials.type,
+                name=aks.credentials.name,
+            )
         resource.update(
             self.rsp.desired.resources["aks-cluster"],
             aksv1alpha1.AKSCluster(
@@ -744,11 +766,7 @@ class Composer:
                     name=_name(self.xr.metadata),
                     namespace=_NAMESPACE_SYSTEM,
                 ),
-                spec=aksv1alpha1.Spec(
-                    location=aks.location,
-                    kubernetesVersion=aks.kubernetesVersion,
-                    nodePools=aks_node_pools,
-                ),
+                spec=aks_spec,
             ),
         )
 
@@ -813,6 +831,11 @@ class Composer:
             kubernetesVersion=nebius.kubernetesVersion,
             nodePools=nebius_node_pools,
         )
+        if nebius.credentials:
+            spec.credentials = nebiusv1alpha1.Credentials(
+                type=nebius.credentials.type,
+                name=nebius.credentials.name,
+            )
         resource.update(
             self.rsp.desired.resources["nebius-cluster"],
             nebiusv1alpha1.NebiusCluster(

@@ -99,6 +99,12 @@ spec:
     xpkg:
       apiVersion: pkg.crossplane.io/v1
       kind: Provider
+      package: xpkg.upbound.io/upbound/provider-family-gcp
+      version: v2.6.0
+  - type: xpkg
+    xpkg:
+      apiVersion: pkg.crossplane.io/v1
+      kind: Provider
       package: xpkg.upbound.io/upbound/provider-aws-eks
       version: v2.6.0
   - type: xpkg

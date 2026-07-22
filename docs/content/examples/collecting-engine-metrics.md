@@ -14,22 +14,13 @@ leader/worker, and prefill/decode differences noted at the end.
 
 This was run end to end on GKE. The `InferenceClass` and `ModelDeployment` are the
 exact manifests from that run, and the `PodMonitor` below scraped this deployment.
-Apply the platform side first, then the ML side. The GKE `InferenceCluster`
-carries a GCP project placeholder to edit before applying.
+Apply the platform side first, then the ML side.
 
 ## Platform
 
 {{< manifests "examples/collecting-engine-metrics/inference-class.yaml" >}}
 
-{{< manifests path="examples/collecting-engine-metrics/inference-cluster.yaml" apply="false" >}}
-
-{{< editCode >}}
-```bash
-curl -fsSL {{< manifest-url "examples/collecting-engine-metrics/inference-cluster.yaml" >}} \
-  | sed 's/my-gcp-project/$@<your-gcp-project-id>$@/' \
-  | kubectl apply -f -
-```
-{{< /editCode >}}
+{{< manifests "examples/collecting-engine-metrics/inference-cluster.yaml" >}}
 
 ## Deployment
 

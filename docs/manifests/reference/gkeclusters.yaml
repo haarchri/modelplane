@@ -4,7 +4,6 @@ metadata:
   name: inference-us-central
   namespace: platform
 spec:
-  project: my-gcp-project
   region: us-central1
   nodePools:
     - name: system

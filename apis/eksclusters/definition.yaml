@@ -51,6 +51,24 @@ spec:
                   available.
                 minLength: 1
                 maxLength: 16
+              credentials:
+                type: object
+                description: >-
+                  AWS ProviderConfig or ClusterProviderConfig used to
+                  authenticate to the AWS API. Defaults to the
+                  ClusterProviderConfig named default.
+                properties:
+                  type:
+                    type: string
+                    default: ClusterProviderConfig
+                    enum:
+                    - ProviderConfig
+                    - ClusterProviderConfig
+                  name:
+                    type: string
+                    default: default
+                    minLength: 1
+                    maxLength: 253
               networking:
                 type: object
                 description: >-
