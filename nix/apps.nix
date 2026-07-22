@@ -278,6 +278,52 @@
       );
     };
 
+  # Run the two-cluster local end-to-end test: a workload
+  # kind cluster registered via source: Existing (serving stack + model) and a
+  # control-plane cluster (crossplane + the InferenceGateway). Two clusters
+  # because the control-plane and workload layers both install the Gateway API
+  # CRDs and collide on a single cluster. See e2e. Tear down with
+  # `nix run .#e2e -- --clean`. This app just materialises the Nix-built
+  # function images (as `run` does), then hands off to run.sh, which needs real
+  # orchestration (a second cluster, a cross-cluster kubeconfig) that
+  # `crossplane project run` flags can't express — kept a normal shell file so
+  # it stays shellcheck-clean rather than escaped nix strings.
+  e2e =
+    {
+      crossplane,
+      functionsPkg,
+    }:
+    {
+      type = "app";
+      meta.description = "Run the local two-cluster end-to-end test";
+      program = pkgs.lib.getExe (
+        pkgs.writeShellApplication {
+          name = "modelplane-e2e";
+          runtimeInputs = [
+            crossplane
+            pkgs.coreutils
+            pkgs.gnused
+            pkgs.gnugrep
+            pkgs.gawk
+            pkgs.kind
+            pkgs.kubectl
+            pkgs.curl
+            pkgs.docker-client
+            pkgs.git
+            pkgs.bash
+          ];
+          inheritPath = false;
+          text = ''
+            mkdir -p _output
+            rm -f _output/functions
+            ln -s ${functionsPkg} _output/functions
+
+            exec bash e2e/run.sh "$@"
+          '';
+        }
+      );
+    };
+
   # Serve the docs site locally with live reload. Extra args pass through to
   # hugo server, e.g.: nix run .#docs-serve -- --port 8080
   docsServe = _: {

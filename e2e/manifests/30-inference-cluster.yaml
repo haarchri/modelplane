@@ -1,0 +1,22 @@
+# Registers the separate workload kind cluster via source: Existing. run.sh
+# creates that cluster, builds the referenced kubeconfig Secret in
+# modelplane-system (--internal address, reachable from the control plane's
+# provider pods over the shared kind network), and labels its node
+# modelplane.ai/pool=gpu-synthetic.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceCluster
+metadata:
+  name: local
+  labels:
+    modelplane.ai/region: local
+spec:
+  cluster:
+    source: Existing
+    existing:
+      secretRef:
+        name: local-cluster-kubeconfig
+        key: kubeconfig
+  nodePools:
+  - name: gpu-synthetic
+    className: synthetic-gpu
+    nodeCount: 1
