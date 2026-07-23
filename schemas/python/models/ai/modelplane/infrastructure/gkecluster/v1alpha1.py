@@ -10,6 +10,13 @@ from pydantic import AwareDatetime, BaseModel, Field, RootModel, conint, constr
 from .....io.k8s.apimachinery.pkg.apis.meta import v1
 
 
+class Credentials(BaseModel):
+    name: constr(min_length=1, max_length=253) | None = 'default'
+    type: Literal['ProviderConfig', 'ClusterProviderConfig'] | None = (
+        'ClusterProviderConfig'
+    )
+
+
 class CompositionRef(BaseModel):
     name: str
 
@@ -111,6 +118,10 @@ class NodePool(BaseModel):
 
 
 class Spec(BaseModel):
+    credentials: Credentials | None = None
+    """
+    GCP ProviderConfig or ClusterProviderConfig used to authenticate to the GCP API. Defaults to the ClusterProviderConfig named default.
+    """
     crossplane: Crossplane | None = None
     """
     Configures how Crossplane will reconcile this composite resource
@@ -126,10 +137,6 @@ class Spec(BaseModel):
     nodePools: list[NodePool] = Field(..., max_length=8, min_length=1)
     """
     Node pools for the cluster. At least one System pool is required for controllers and infrastructure workloads.
-    """
-    project: constr(min_length=6, max_length=30)
-    """
-    GCP project ID where the cluster will be created.
     """
     region: constr(min_length=1, max_length=32)
     """

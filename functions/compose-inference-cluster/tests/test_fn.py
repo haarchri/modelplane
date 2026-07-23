@@ -445,7 +445,6 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                 cluster=v1alpha1.Cluster(
                                     source="GKE",
                                     gke=v1alpha1.Gke(
-                                        project="my-gcp-project",
                                         region="us-central1",
                                     ),
                                 ),
@@ -510,7 +509,6 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     "namespace": "modelplane-system",
                                 },
                                 "spec": {
-                                    "project": "my-gcp-project",
                                     "region": "us-central1",
                                     "kubernetesVersion": "1.35",
                                     "nodePools": [
@@ -1121,7 +1119,6 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             "kind": "GKECluster",
             "metadata": {"name": "test-cluster", "namespace": "modelplane-system"},
             "spec": {
-                "project": "my-gcp-project",
                 "region": "us-central1",
                 "nodePools": [{"name": "system", "role": "System", "machineType": "e2-standard-4"}],
             },
@@ -1160,7 +1157,6 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                 cluster=v1alpha1.Cluster(
                                     source="GKE",
                                     gke=v1alpha1.Gke(
-                                        project="my-gcp-project",
                                         region="us-central1",
                                     ),
                                 ),
@@ -1230,7 +1226,6 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     "namespace": "modelplane-system",
                                 },
                                 "spec": {
-                                    "project": "my-gcp-project",
                                     "region": "us-central1",
                                     "kubernetesVersion": "1.35",
                                     "nodePools": [
@@ -2138,10 +2133,138 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             Case("guard is composed even when compose returns early", *_early_return_guard_case()),
         ]
 
+        # --- Case credentials: GKE with custom credentials passes them through to GKECluster. ---
+        req_creds = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        v1alpha1.InferenceCluster(
+                            metadata=metav1.ObjectMeta(
+                                name="test-cluster",
+                                namespace="modelplane-system",
+                            ),
+                            spec=v1alpha1.Spec(
+                                cluster=v1alpha1.Cluster(
+                                    source="GKE",
+                                    gke=v1alpha1.Gke(
+                                        region="us-central1",
+                                        credentials=v1alpha1.Credentials(
+                                            type="ProviderConfig",
+                                            name="my-gcp-account",
+                                        ),
+                                    ),
+                                ),
+                                nodePools=[
+                                    v1alpha1.NodePool(
+                                        name="l4-pool",
+                                        className="gpu-l4",
+                                        nodeCount=2,
+                                        maxNodeCount=4,
+                                        zones=["us-central1-a"],
+                                    ),
+                                ],
+                            ),
+                        ).model_dump(exclude_none=True, mode="json")
+                    ),
+                ),
+            ),
+        )
+        req_creds.required_resources["class-gpu-l4"].items.append(
+            fnv1.Resource(resource=resource.dict_to_struct(inference_class_l4))
+        )
+
+        want_creds = fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        {
+                            "status": {
+                                "providerConfigRef": {
+                                    "name": "test-cluster-cluster-kubeconfig-d0f89",
+                                },
+                                "namespace": "modelplane-system",
+                                "gpuPools": [
+                                    {
+                                        "name": "l4-pool",
+                                        "nodes": 4,
+                                        "devices": [
+                                            {
+                                                "name": "gpu",
+                                                "claim": "DRA",
+                                                "driver": "gpu.nvidia.com",
+                                                "deviceClassName": "gpu.nvidia.com",
+                                                "count": 1,
+                                                "capacity": {"memory": {"value": "24Gi"}},
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        }
+                    ),
+                ),
+                resources={
+                    "gke-cluster": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                                "kind": "GKECluster",
+                                "metadata": {
+                                    "name": "test-cluster",
+                                    "namespace": "modelplane-system",
+                                },
+                                "spec": {
+                                    "region": "us-central1",
+                                    "kubernetesVersion": "1.35",
+                                    "credentials": {
+                                        "type": "ProviderConfig",
+                                        "name": "my-gcp-account",
+                                    },
+                                    "nodePools": [
+                                        {
+                                            "name": "l4-pool",
+                                            "role": "GPU",
+                                            "machineType": "g2-standard-48",
+                                            "nodeCount": 2,
+                                            "minNodeCount": None,
+                                            "maxNodeCount": 4,
+                                            "diskSizeGb": 100,
+                                            "gpu": {
+                                                "acceleratorType": "nvidia-l4",
+                                                "acceleratorCount": 1,
+                                            },
+                                            "zones": ["us-central1-a"],
+                                        },
+                                    ],
+                                },
+                            }
+                        ),
+                    ),
+                },
+            ),
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="Provisioning",
+                ),
+                fnv1.Condition(
+                    type="BackendReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="WaitingForCluster",
+                ),
+            ],
+            context=structpb.Struct(),
+        )
+        want_creds.requirements.resources["class-gpu-l4"].CopyFrom(class_selector)
+        want_creds.requirements.resources["model-replicas"].CopyFrom(_replicas_selector("test-cluster"))
+
         cases = [
             Case(name="existing cluster with secrets composes backend and CPC", req=req1, want=want1),
             Case(name="existing cluster with a non-GCP identity threads the identity type", req=req1b, want=want1b),
             Case(name="GKE cluster first pass composes GKECluster XR only", req=req2, want=want2),
+            Case(name="GKE credentials pass through to GKECluster spec", req=req_creds, want=want_creds),
             Case(name="existing cluster second pass with backend ready", req=req3, want=want3),
             Case(name="EKS cluster first pass composes EKSCluster XR only", req=req4, want=want4),
             Case(name="EKS cluster not ready re-emits existing CPC unchanged", req=req5, want=want5),

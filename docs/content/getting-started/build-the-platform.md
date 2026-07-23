@@ -166,17 +166,13 @@ kubectl wait --for=condition=Ready ic/eks-us-east --timeout=20m
 {{< /tab >}}
 
 {{< tab "GKE" >}}
-Apply the manifest, setting the cluster's `project` to your GCP project:
+Apply the manifest:
 
 {{< manifests path="getting-started/gke/platform.yaml" apply="false" >}}
 
-{{< editCode >}}
 ```bash
-curl -fsSL {{< manifest-url "getting-started/gke/platform.yaml" >}} \
-  | sed 's/my-gcp-project/$@<your-gcp-project>$@/' \
-  | kubectl apply -f -
+kubectl apply -f {{< manifest-url "getting-started/gke/platform.yaml" >}}
 ```
-{{< /editCode >}}
 
 Modelplane provisions the cluster. This takes about 15 minutes:
 

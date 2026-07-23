@@ -53,11 +53,12 @@ from models.io.crossplane.m.helm.release import v1beta1 as helmv1beta1
 from models.io.crossplane.m.kubernetes.object import v1alpha1 as k8sobjv1alpha1
 from models.io.crossplane.m.kubernetes.providerconfig import v1alpha1 as k8spcv1alpha1
 from models.io.k8s.apimachinery.pkg.apis.meta import v1 as metav1
-from models.io.upbound.m.nebius.clusterproviderconfig import v1beta1 as nebiuspcv1beta1
+from models.io.upbound.m.nebius.clusterproviderconfig import v1beta1 as nebiuscpcv1beta1
 from models.io.upbound.m.nebius.compute.filesystem import v1beta1 as fsv1beta1
 from models.io.upbound.m.nebius.compute.gpucluster import v1beta1 as gpuclusterv1beta1
 from models.io.upbound.m.nebius.mk8s.cluster import v1beta1 as clusterv1beta1
 from models.io.upbound.m.nebius.mk8s.nodegroup import v1beta1 as nodegroupv1beta1
+from models.io.upbound.m.nebius.providerconfig import v1beta1 as nebiuspcv1beta1
 from models.io.upbound.m.nebius.vpc.network import v1beta1 as networkv1beta1
 from models.io.upbound.m.nebius.vpc.subnet import v1beta1 as subnetv1beta1
 
@@ -90,11 +91,6 @@ _SECRET_KEY_KUBECONFIG = "kubeconfig"
 
 # Identity type for Nebius service account credentials.
 _IDENTITY_TYPE_NEBIUS = "NebiusServiceAccountCredentials"
-
-# Name of the Nebius ClusterProviderConfig the composed managed resources use
-# (Crossplane's default for namespaced MRs without a providerConfigRef). Its
-# credentials Secret is reused as the cluster identity.
-_NEBIUS_PROVIDER_CONFIG_NAME = "default"
 
 # Boot disk type for node groups. Network SSDs are available on all
 # platforms; local disks would tie the group to specific presets.
@@ -228,6 +224,14 @@ class Composer:
         self.rsp = rsp
         self.xr = v1alpha1.NebiusCluster(**resource.struct_to_dict(req.observed.composite.resource))
 
+    def _cred_kind(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.type if creds and creds.type else "ClusterProviderConfig"
+
+    def _cred_name(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.name if creds and creds.name else "default"
+
     def compose(self) -> None:
         # Credentials gate only their consumers: the ProviderConfigs, the CSI
         # driver and RWX StorageClass installed through them, and the status
@@ -255,20 +259,24 @@ class Composer:
 
         The credentials Secret is read off the Nebius ClusterProviderConfig
         the composed resources use - the cluster identity is the identity
-        that provisioned it. None while the ClusterProviderConfig hasn't been
-        fetched yet, or when it doesn't source credentials from a Secret.
+        that provisioned it. None while the ProviderConfig or
+        ClusterProviderConfig hasn't been fetched yet, or when it doesn't
+        source credentials from a Secret.
 
-        When the ClusterProviderConfig is gone but a composed ProviderConfig
-        is observed, falls back to the credentials that ProviderConfig was
-        last written with: a mistakenly deleted ClusterProviderConfig
-        shouldn't tear the credential consumers out of desired state, and a
-        recreated one takes over again on a later reconcile."""
+        When the referenced config is gone but a composed ProviderConfig is
+        observed, falls back to the credentials that ProviderConfig was last
+        written with: a mistakenly deleted config shouldn't tear the
+        credential consumers out of desired state, and a recreated one takes
+        over again on a later reconcile."""
+        cred_kind = self._cred_kind()
+        cred_name = self._cred_name()
         response.require_resources(
             self.rsp,
             name="nebius-provider-config",
             api_version="nebius.m.upbound.io/v1beta1",
-            kind="ClusterProviderConfig",
-            match_name=_NEBIUS_PROVIDER_CONFIG_NAME,
+            kind=cred_kind,
+            match_name=cred_name,
+            namespace=_namespace(self.xr.metadata) if cred_kind == "ProviderConfig" else None,
         )
         d = request.get_required_resource(self.req, "nebius-provider-config")
         if d is None:
@@ -276,23 +284,36 @@ class Composer:
             if creds:
                 response.normal(
                     self.rsp,
-                    f"Nebius ClusterProviderConfig {_NEBIUS_PROVIDER_CONFIG_NAME} not found; keeping the "
+                    f"Nebius {cred_kind} {cred_name} not found; keeping the "
                     "credentials the composed ProviderConfig already carries",
                 )
                 return creds
-            response.normal(self.rsp, f"Waiting for Nebius ClusterProviderConfig {_NEBIUS_PROVIDER_CONFIG_NAME}")
+            response.normal(self.rsp, f"Waiting for Nebius {cred_kind} {cred_name}")
             return None
 
-        pc = nebiuspcv1beta1.ClusterProviderConfig.model_validate(d)
+        if cred_kind == "ClusterProviderConfig":
+            pc = nebiuscpcv1beta1.ClusterProviderConfig.model_validate(d)
+        else:
+            pc = nebiuspcv1beta1.ProviderConfig.model_validate(d)
         secret_ref = pc.spec.credentials.secretRef
         if pc.spec.credentials.source != "Secret" or not secret_ref:
             response.warning(
                 self.rsp,
-                f"Nebius ClusterProviderConfig {_NEBIUS_PROVIDER_CONFIG_NAME} doesn't source credentials "
+                f"Nebius {cred_kind} {cred_name} doesn't source credentials "
                 "from a Secret; consumers can't authenticate to the cluster without one",
             )
             return None
-        return Credentials(namespace=secret_ref.namespace, name=secret_ref.name, key=secret_ref.key)
+        # ClusterProviderConfig.SecretRef carries an explicit namespace; the
+        # namespaced ProviderConfig omits it because the secret lives in the
+        # ProviderConfig's own namespace.
+        ns = getattr(secret_ref, "namespace", None) or (pc.metadata.namespace if pc.metadata else None)
+        if not ns:
+            response.warning(
+                self.rsp,
+                f"Nebius {cred_kind} {cred_name} has no namespace; cannot locate credentials Secret",
+            )
+            return None
+        return Credentials(namespace=ns, name=secret_ref.name, key=secret_ref.key)
 
     def _observed_credentials(self) -> Credentials | None:
         """The credentials the composed kubernetes ProviderConfig was last
@@ -316,6 +337,10 @@ class Composer:
         from the Kubernetes object name."""
         network = networkv1beta1.Network(
             spec=networkv1beta1.Spec(
+                providerConfigRef=networkv1beta1.ProviderConfigRef(
+                    kind=self._cred_kind(),
+                    name=self._cred_name(),
+                ),
                 forProvider=networkv1beta1.ForProvider(
                     name=_name(self.xr.metadata),
                 ),
@@ -325,6 +350,10 @@ class Composer:
 
         subnet = subnetv1beta1.Subnet(
             spec=subnetv1beta1.Spec(
+                providerConfigRef=subnetv1beta1.ProviderConfigRef(
+                    kind=self._cred_kind(),
+                    name=self._cred_name(),
+                ),
                 forProvider=subnetv1beta1.ForProvider(
                     name=_name(self.xr.metadata),
                     networkIdSelector=subnetv1beta1.NetworkIdSelector(
@@ -341,6 +370,10 @@ class Composer:
     def compose_cluster(self) -> None:
         cluster = clusterv1beta1.Cluster(
             spec=clusterv1beta1.Spec(
+                providerConfigRef=clusterv1beta1.ProviderConfigRef(
+                    kind=self._cred_kind(),
+                    name=self._cred_name(),
+                ),
                 forProvider=clusterv1beta1.ForProvider(
                     name=_name(self.xr.metadata),
                     controlPlane=clusterv1beta1.ControlPlane(
@@ -373,6 +406,10 @@ class Composer:
             self.rsp.desired.resources["filesystem"],
             fsv1beta1.Filesystem(
                 spec=fsv1beta1.Spec(
+                    providerConfigRef=fsv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=fsv1beta1.ForProvider(
                         name=f"{_name(self.xr.metadata)}-cache",
                         type=_FS_TYPE,
@@ -497,6 +534,10 @@ class Composer:
             gpu_cluster = gpuclusterv1beta1.GpuCluster(
                 metadata=metav1.ObjectMeta(labels={_LABEL_FABRIC: fabric}),
                 spec=gpuclusterv1beta1.Spec(
+                    providerConfigRef=gpuclusterv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=gpuclusterv1beta1.ForProvider(
                         name=f"{_name(self.xr.metadata)}-{fabric}",
                         infinibandFabric=fabric,
@@ -556,6 +597,10 @@ class Composer:
 
             ng = nodegroupv1beta1.NodeGroup(
                 spec=nodegroupv1beta1.Spec(
+                    providerConfigRef=nodegroupv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=nodegroupv1beta1.ForProvider(
                         name=f"{_name(self.xr.metadata)}-{pool.name}",
                         parentIdSelector=nodegroupv1beta1.ParentIdSelector(
@@ -588,6 +633,10 @@ class Composer:
             self.rsp.desired.resources[f"nodegroup-{_SYSTEM_POOL_NAME}"],
             nodegroupv1beta1.NodeGroup(
                 spec=nodegroupv1beta1.Spec(
+                    providerConfigRef=nodegroupv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=nodegroupv1beta1.ForProvider(
                         name=f"{_name(self.xr.metadata)}-{_SYSTEM_POOL_NAME}",
                         parentIdSelector=nodegroupv1beta1.ParentIdSelector(

@@ -10,6 +10,13 @@ from pydantic import AwareDatetime, BaseModel, Field, conint, constr
 from .....io.k8s.apimachinery.pkg.apis.meta import v1
 
 
+class Credentials(BaseModel):
+    name: constr(min_length=1, max_length=253) | None = 'default'
+    type: Literal['ProviderConfig', 'ClusterProviderConfig'] | None = (
+        'ClusterProviderConfig'
+    )
+
+
 class CompositionRef(BaseModel):
     name: str
 
@@ -114,6 +121,10 @@ class NodePool(BaseModel):
 
 
 class Spec(BaseModel):
+    credentials: Credentials | None = None
+    """
+    Nebius ProviderConfig or ClusterProviderConfig used to authenticate to the Nebius API. Defaults to the ClusterProviderConfig named default. The cluster is created in the project the referenced config sets as its projectID.
+    """
     crossplane: Crossplane | None = None
     """
     Configures how Crossplane will reconcile this composite resource
@@ -155,7 +166,7 @@ class Secret(BaseModel):
     """
     namespace: constr(max_length=253) | None = None
     """
-    Namespace of the Secret, when it isn't this NebiusCluster's namespace. Set on the credentials entry when the credential is reused from the Secret the Nebius ClusterProviderConfig references.
+    Namespace of the Secret, when it isn't this NebiusCluster's namespace. Set on the credentials entry when the credential is reused from the Secret referenced by spec.credentials.
     """
     type: Literal['Kubeconfig', 'NebiusServiceAccountCredentials']
     """

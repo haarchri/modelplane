@@ -9,7 +9,6 @@ spec:
   cluster:
     source: GKE
     gke:
-      project: my-gcp-project   # set to your project
       region: us-west1
   nodePools:
   - name: gpu-a100

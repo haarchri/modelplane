@@ -399,6 +399,14 @@ class Composer:
         self.rsp = rsp
         self.xr = v1alpha1.EKSCluster(**resource.struct_to_dict(req.observed.composite.resource))
 
+    def _cred_kind(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.type if creds and creds.type else "ClusterProviderConfig"
+
+    def _cred_name(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.name if creds and creds.name else "default"
+
     def compose(self) -> None:
         self.compose_network()
         self.compose_iam()
@@ -430,6 +438,10 @@ class Composer:
             self.rsp.desired.resources["vpc"],
             vpcv1beta1.VPC(
                 spec=vpcv1beta1.Spec(
+                    providerConfigRef=vpcv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=vpcv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         cidrBlock=self._networking().vpcCidr,
@@ -452,6 +464,10 @@ class Composer:
                         labels={_LABEL_AZ: az, _LABEL_TIER: _TIER_PUBLIC},
                     ),
                     spec=subnetv1beta1.Spec(
+                        providerConfigRef=subnetv1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=subnetv1beta1.ForProvider(
                             region=self.xr.spec.region,
                             availabilityZone=az,
@@ -474,6 +490,10 @@ class Composer:
                         labels={_LABEL_AZ: az, _LABEL_TIER: _TIER_PRIVATE},
                     ),
                     spec=subnetv1beta1.Spec(
+                        providerConfigRef=subnetv1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=subnetv1beta1.ForProvider(
                             region=self.xr.spec.region,
                             availabilityZone=az,
@@ -491,6 +511,10 @@ class Composer:
             self.rsp.desired.resources["internet-gateway"],
             igwv1beta1.InternetGateway(
                 spec=igwv1beta1.Spec(
+                    providerConfigRef=igwv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=igwv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         vpcIdSelector=igwv1beta1.VpcIdSelector(
@@ -508,6 +532,10 @@ class Composer:
             self.rsp.desired.resources["nat-eip"],
             eipv1beta1.EIP(
                 spec=eipv1beta1.Spec(
+                    providerConfigRef=eipv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=eipv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         domain="vpc",
@@ -520,6 +548,10 @@ class Composer:
             self.rsp.desired.resources["nat-gateway"],
             natv1beta1.NATGateway(
                 spec=natv1beta1.Spec(
+                    providerConfigRef=natv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=natv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         allocationIdSelector=natv1beta1.AllocationIdSelector(
@@ -540,6 +572,10 @@ class Composer:
             rtv1beta1.RouteTable(
                 metadata=metav1.ObjectMeta(labels={_LABEL_TIER: _TIER_PUBLIC}),
                 spec=rtv1beta1.Spec(
+                    providerConfigRef=rtv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rtv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         vpcIdSelector=rtv1beta1.VpcIdSelector(
@@ -553,6 +589,10 @@ class Composer:
             self.rsp.desired.resources["route-default"],
             routev1beta1.Route(
                 spec=routev1beta1.Spec(
+                    providerConfigRef=routev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=routev1beta1.ForProvider(
                         region=self.xr.spec.region,
                         destinationCidrBlock="0.0.0.0/0",
@@ -574,6 +614,10 @@ class Composer:
             rtv1beta1.RouteTable(
                 metadata=metav1.ObjectMeta(labels={_LABEL_TIER: _TIER_PRIVATE}),
                 spec=rtv1beta1.Spec(
+                    providerConfigRef=rtv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rtv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         vpcIdSelector=rtv1beta1.VpcIdSelector(
@@ -587,6 +631,10 @@ class Composer:
             self.rsp.desired.resources["private-route-default"],
             routev1beta1.Route(
                 spec=routev1beta1.Spec(
+                    providerConfigRef=routev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=routev1beta1.ForProvider(
                         region=self.xr.spec.region,
                         destinationCidrBlock="0.0.0.0/0",
@@ -608,6 +656,10 @@ class Composer:
                 self.rsp.desired.resources[f"route-table-association-{i}"],
                 rtav1beta1.RouteTableAssociation(
                     spec=rtav1beta1.Spec(
+                        providerConfigRef=rtav1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=rtav1beta1.ForProvider(
                             region=self.xr.spec.region,
                             routeTableIdSelector=rtav1beta1.RouteTableIdSelector(
@@ -626,6 +678,10 @@ class Composer:
                 self.rsp.desired.resources[f"private-route-table-association-{i}"],
                 rtav1beta1.RouteTableAssociation(
                     spec=rtav1beta1.Spec(
+                        providerConfigRef=rtav1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=rtav1beta1.ForProvider(
                             region=self.xr.spec.region,
                             routeTableIdSelector=rtav1beta1.RouteTableIdSelector(
@@ -648,6 +704,10 @@ class Composer:
             rolev1beta1.Role(
                 metadata=metav1.ObjectMeta(labels={_LABEL_ROLE: _ROLE_CLUSTER}),
                 spec=rolev1beta1.Spec(
+                    providerConfigRef=rolev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rolev1beta1.ForProvider(
                         assumeRolePolicy=_ASSUME_ROLE_CLUSTER,
                     ),
@@ -659,6 +719,10 @@ class Composer:
             self.rsp.desired.resources["iam-attach-cluster-policy"],
             rpav1beta1.RolePolicyAttachment(
                 spec=rpav1beta1.Spec(
+                    providerConfigRef=rpav1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rpav1beta1.ForProvider(
                         policyArn=_POLICY_CLUSTER,
                         roleSelector=rpav1beta1.RoleSelector(
@@ -675,6 +739,10 @@ class Composer:
             rolev1beta1.Role(
                 metadata=metav1.ObjectMeta(labels={_LABEL_ROLE: _ROLE_NODE}),
                 spec=rolev1beta1.Spec(
+                    providerConfigRef=rolev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rolev1beta1.ForProvider(
                         assumeRolePolicy=_ASSUME_ROLE_NODE,
                     ),
@@ -691,6 +759,10 @@ class Composer:
                 self.rsp.desired.resources[key],
                 rpav1beta1.RolePolicyAttachment(
                     spec=rpav1beta1.Spec(
+                        providerConfigRef=rpav1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=rpav1beta1.ForProvider(
                             policyArn=arn,
                             roleSelector=rpav1beta1.RoleSelector(
@@ -709,6 +781,10 @@ class Composer:
             clusterv1beta1.Cluster(
                 metadata=metav1.ObjectMeta(name=_cluster_name(self.xr)),
                 spec=clusterv1beta1.Spec(
+                    providerConfigRef=clusterv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=clusterv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         version=self.xr.spec.kubernetesVersion,
@@ -744,6 +820,10 @@ class Composer:
             self.rsp.desired.resources["cluster-auth"],
             clusterauthv1beta1.ClusterAuth(
                 spec=clusterauthv1beta1.Spec(
+                    providerConfigRef=clusterauthv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=clusterauthv1beta1.ForProvider(
                         region=self.xr.spec.region,
                         clusterNameSelector=clusterauthv1beta1.ClusterNameSelector(
@@ -835,6 +915,10 @@ class Composer:
                 self.rsp.desired.resources[f"nodegroup-{pool.name}"],
                 ngv1beta1.NodeGroup(
                     spec=ngv1beta1.Spec(
+                        providerConfigRef=ngv1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         managementPolicies=_NODE_GROUP_MANAGEMENT,
                         initProvider=ngv1beta1.InitProvider(
                             scalingConfig=ngv1beta1.ScalingConfig(desiredSize=pool.nodeCount),
@@ -898,7 +982,15 @@ class Composer:
 
         resource.update(
             self.rsp.desired.resources[f"launch-template-{pool.name}"],
-            ltv1beta1.LaunchTemplate(spec=ltv1beta1.Spec(forProvider=fp)),
+            ltv1beta1.LaunchTemplate(
+                spec=ltv1beta1.Spec(
+                    providerConfigRef=ltv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
+                    forProvider=fp,
+                ),
+            ),
         )
 
     def _efa_network_interfaces(self, pool: v1alpha1.NodePool) -> list[ltv1beta1.NetworkInterface]:
@@ -1000,6 +1092,10 @@ class Composer:
                     labels={_LABEL_FABRIC: _FABRIC_EFA},
                 ),
                 spec=sgv1beta1.Spec(
+                    providerConfigRef=sgv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sgv1beta1.ForProvider(
                         region=region,
                         name=f"{_name(self.xr.metadata)}-efa",
@@ -1013,6 +1109,10 @@ class Composer:
             self.rsp.desired.resources["efa-security-group-ingress"],
             sgrv1beta1.SecurityGroupIngressRule(
                 spec=sgrv1beta1.Spec(
+                    providerConfigRef=sgrv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sgrv1beta1.ForProvider(
                         region=region,
                         ipProtocol="-1",
@@ -1032,6 +1132,10 @@ class Composer:
             self.rsp.desired.resources["efa-security-group-egress"],
             sgev1beta1.SecurityGroupEgressRule(
                 spec=sgev1beta1.Spec(
+                    providerConfigRef=sgev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sgev1beta1.ForProvider(
                         region=region,
                         ipProtocol="-1",
@@ -1054,6 +1158,10 @@ class Composer:
             self.rsp.desired.resources[f"nodegroup-{_SYSTEM_POOL_NAME}"],
             ngv1beta1.NodeGroup(
                 spec=ngv1beta1.Spec(
+                    providerConfigRef=ngv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     managementPolicies=_NODE_GROUP_MANAGEMENT,
                     initProvider=ngv1beta1.InitProvider(
                         scalingConfig=ngv1beta1.ScalingConfig(desiredSize=_SYSTEM_POOL_NODE_COUNT),
@@ -1106,6 +1214,10 @@ class Composer:
                 self.rsp.desired.resources[f"addon-{name}"],
                 addonv1beta1.Addon(
                     spec=addonv1beta1.Spec(
+                        providerConfigRef=addonv1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=addonv1beta1.ForProvider(
                             region=self.xr.spec.region,
                             addonName=name,
@@ -1130,6 +1242,10 @@ class Composer:
             self.rsp.desired.resources["efs-filesystem"],
             fsv1beta1.FileSystem(
                 spec=fsv1beta1.Spec(
+                    providerConfigRef=fsv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=fsv1beta1.ForProvider(
                         region=region,
                         throughputMode="elastic",
@@ -1150,6 +1266,10 @@ class Composer:
             sgv1beta1.SecurityGroup(
                 metadata=metav1.ObjectMeta(labels={_LABEL_SG_ROLE: _SG_ROLE_EFS}),
                 spec=sgv1beta1.Spec(
+                    providerConfigRef=sgv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sgv1beta1.ForProvider(
                         region=region,
                         name=f"{_name(self.xr.metadata)}-efs",
@@ -1163,6 +1283,10 @@ class Composer:
             self.rsp.desired.resources["efs-security-group-ingress"],
             sgrv1beta1.SecurityGroupIngressRule(
                 spec=sgrv1beta1.Spec(
+                    providerConfigRef=sgrv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=sgrv1beta1.ForProvider(
                         region=region,
                         ipProtocol="tcp",
@@ -1185,6 +1309,10 @@ class Composer:
                 self.rsp.desired.resources[f"efs-mount-target-{i}"],
                 mtv1beta1.MountTarget(
                     spec=mtv1beta1.Spec(
+                        providerConfigRef=mtv1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         forProvider=mtv1beta1.ForProvider(
                             region=region,
                             fileSystemIdSelector=mtv1beta1.FileSystemIdSelector(matchControllerRef=True),
@@ -1206,6 +1334,10 @@ class Composer:
             rolev1beta1.Role(
                 metadata=metav1.ObjectMeta(labels={_LABEL_ROLE: _ROLE_EFS_CSI}),
                 spec=rolev1beta1.Spec(
+                    providerConfigRef=rolev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rolev1beta1.ForProvider(assumeRolePolicy=_ASSUME_ROLE_POD_IDENTITY),
                 ),
             ),
@@ -1214,6 +1346,10 @@ class Composer:
             self.rsp.desired.resources["iam-attach-efs-csi"],
             rpav1beta1.RolePolicyAttachment(
                 spec=rpav1beta1.Spec(
+                    providerConfigRef=rpav1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rpav1beta1.ForProvider(
                         policyArn=_POLICY_EFS_CSI,
                         roleSelector=rpav1beta1.RoleSelector(
@@ -1231,6 +1367,10 @@ class Composer:
             self.rsp.desired.resources["addon-eks-pod-identity-agent"],
             addonv1beta1.Addon(
                 spec=addonv1beta1.Spec(
+                    providerConfigRef=addonv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=addonv1beta1.ForProvider(
                         region=region,
                         addonName="eks-pod-identity-agent",
@@ -1243,6 +1383,10 @@ class Composer:
             self.rsp.desired.resources["pod-identity-efs-csi"],
             piav1beta1.PodIdentityAssociation(
                 spec=piav1beta1.Spec(
+                    providerConfigRef=piav1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=piav1beta1.ForProvider(
                         region=region,
                         namespace=_EFS_CSI_NAMESPACE,
@@ -1261,6 +1405,10 @@ class Composer:
             self.rsp.desired.resources["addon-aws-efs-csi-driver"],
             addonv1beta1.Addon(
                 spec=addonv1beta1.Spec(
+                    providerConfigRef=addonv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=addonv1beta1.ForProvider(
                         region=region,
                         addonName="aws-efs-csi-driver",
@@ -1323,6 +1471,10 @@ class Composer:
             policyv1beta1.Policy(
                 metadata=metav1.ObjectMeta(labels={_LABEL_ROLE: _ROLE_CLUSTER_AUTOSCALER}),
                 spec=policyv1beta1.Spec(
+                    providerConfigRef=policyv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=policyv1beta1.ForProvider(policy=_POLICY_CLUSTER_AUTOSCALER),
                 ),
             ),
@@ -1335,6 +1487,10 @@ class Composer:
             rolev1beta1.Role(
                 metadata=metav1.ObjectMeta(labels={_LABEL_ROLE: _ROLE_CLUSTER_AUTOSCALER}),
                 spec=rolev1beta1.Spec(
+                    providerConfigRef=rolev1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rolev1beta1.ForProvider(assumeRolePolicy=_ASSUME_ROLE_POD_IDENTITY),
                 ),
             ),
@@ -1343,6 +1499,10 @@ class Composer:
             self.rsp.desired.resources["iam-attach-cluster-autoscaler"],
             rpav1beta1.RolePolicyAttachment(
                 spec=rpav1beta1.Spec(
+                    providerConfigRef=rpav1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rpav1beta1.ForProvider(
                         policyArnSelector=rpav1beta1.PolicyArnSelector(
                             matchControllerRef=True,
@@ -1363,6 +1523,10 @@ class Composer:
             self.rsp.desired.resources["pod-identity-cluster-autoscaler"],
             piav1beta1.PodIdentityAssociation(
                 spec=piav1beta1.Spec(
+                    providerConfigRef=piav1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=piav1beta1.ForProvider(
                         region=region,
                         namespace=_AUTOSCALER_NAMESPACE,

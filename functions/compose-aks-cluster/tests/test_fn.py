@@ -46,48 +46,54 @@ _CLUSTER_NAME = resource.child_name("modelplane-system", "test-cluster", "aks")
 _KUBECONFIG_SECRET_NAME = resource.child_name("test-cluster", "kubeconfig")
 
 
-def _xr(pools: list[v1alpha1.NodePool]) -> dict:
+def _xr(
+    pools: list[v1alpha1.NodePool],
+    credentials: v1alpha1.Credentials | None = None,
+) -> dict:
     """An AKSCluster XR with the given node pools, as a request dict."""
+    spec = v1alpha1.Spec(location="westeurope", nodePools=pools)
+    if credentials is not None:
+        spec.credentials = credentials
     return v1alpha1.AKSCluster(
         metadata=metav1.ObjectMeta(
             name="test-cluster",
             namespace="modelplane-system",
         ),
-        spec=v1alpha1.Spec(
-            location="westeurope",
-            nodePools=pools,
-        ),
+        spec=spec,
     ).model_dump(exclude_none=True, mode="json")
 
 
 def _req(
     pools: list[v1alpha1.NodePool],
     observed_resources: dict[str, fnv1.Resource] | None = None,
+    credentials: v1alpha1.Credentials | None = None,
 ) -> fnv1.RunFunctionRequest:
     return fnv1.RunFunctionRequest(
         observed=fnv1.State(
-            composite=fnv1.Resource(resource=resource.dict_to_struct(_xr(pools))),
+            composite=fnv1.Resource(resource=resource.dict_to_struct(_xr(pools, credentials))),
             resources=observed_resources or {},
         ),
     )
 
 
-def _resource_group() -> dict:
+def _resource_group(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "azure.m.upbound.io/v1beta1",
         "kind": "ResourceGroup",
         "metadata": {"name": _CLUSTER_NAME},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {"location": "westeurope"},
         },
     }
 
 
-def _virtual_network() -> dict:
+def _virtual_network(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "network.azure.m.upbound.io/v1beta1",
         "kind": "VirtualNetwork",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "location": "westeurope",
                 "addressSpace": ["10.0.0.0/16"],
@@ -97,11 +103,12 @@ def _virtual_network() -> dict:
     }
 
 
-def _subnet() -> dict:
+def _subnet(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "network.azure.m.upbound.io/v1beta1",
         "kind": "Subnet",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "addressPrefixes": ["10.0.0.0/20"],
                 "resourceGroupNameSelector": {"matchControllerRef": True},
@@ -111,12 +118,13 @@ def _subnet() -> dict:
     }
 
 
-def _cluster() -> dict:
+def _cluster(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "containerservice.azure.m.upbound.io/v1beta1",
         "kind": "KubernetesCluster",
         "metadata": {"name": _CLUSTER_NAME},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "location": "westeurope",
                 "kubernetesVersion": "1.34",
@@ -148,13 +156,18 @@ def _cluster() -> dict:
     }
 
 
-def _nodepool_gpu(**for_provider_extra: object) -> dict:
+def _nodepool_gpu(
+    cred_kind: str = "ClusterProviderConfig",
+    cred_name: str = "default",
+    **for_provider_extra: object,
+) -> dict:
     """A GPU node pool golden, merged with extra forProvider fields."""
     return {
         "apiVersion": "containerservice.azure.m.upbound.io/v1beta1",
         "kind": "KubernetesClusterNodePool",
         "metadata": {"annotations": {"crossplane.io/external-name": "gpuh100"}},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "managementPolicies": ["Observe", "Create", "Update", "Delete"],
             "initProvider": {"nodeCount": 1},
             "forProvider": {
@@ -478,6 +491,54 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "subnet": fnv1.Resource(resource=resource.dict_to_struct(_subnet())),
                             "cluster": fnv1.Resource(resource=resource.dict_to_struct(_cluster())),
                             "nodepool-gpuh100": fnv1.Resource(resource=resource.dict_to_struct(_nodepool_gpu())),
+                            "provider-config-kubernetes": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _provider_config("kubernetes.m.crossplane.io/v1alpha1", "ProviderConfig"),
+                                ),
+                                ready=fnv1.READY_TRUE,
+                            ),
+                            "provider-config-helm": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _provider_config("helm.m.crossplane.io/v1beta1", "ProviderConfig"),
+                                ),
+                                ready=fnv1.READY_TRUE,
+                            ),
+                        },
+                    ),
+                    context=structpb.Struct(),
+                ),
+            ),
+            Case(
+                name="custom credentials flow through to all cloud MRs",
+                req=_req(
+                    [_GPU_POOL],
+                    credentials=v1alpha1.Credentials(
+                        type="ProviderConfig",
+                        name="my-azure-account",
+                    ),
+                ),
+                want=fnv1.RunFunctionResponse(
+                    meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+                    desired=fnv1.State(
+                        composite=fnv1.Resource(resource=resource.dict_to_struct(_status())),
+                        resources={
+                            "resource-group": fnv1.Resource(
+                                resource=resource.dict_to_struct(_resource_group("ProviderConfig", "my-azure-account")),
+                            ),
+                            "virtual-network": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _virtual_network("ProviderConfig", "my-azure-account")
+                                ),
+                            ),
+                            "subnet": fnv1.Resource(
+                                resource=resource.dict_to_struct(_subnet("ProviderConfig", "my-azure-account")),
+                            ),
+                            "cluster": fnv1.Resource(
+                                resource=resource.dict_to_struct(_cluster("ProviderConfig", "my-azure-account")),
+                            ),
+                            "nodepool-gpuh100": fnv1.Resource(
+                                resource=resource.dict_to_struct(_nodepool_gpu("ProviderConfig", "my-azure-account")),
+                            ),
                             "provider-config-kubernetes": fnv1.Resource(
                                 resource=resource.dict_to_struct(
                                     _provider_config("kubernetes.m.crossplane.io/v1alpha1", "ProviderConfig"),

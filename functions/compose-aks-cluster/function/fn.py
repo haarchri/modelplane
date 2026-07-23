@@ -231,6 +231,14 @@ class Composer:
         self.write_status()
         self.mark_readiness()
 
+    def _cred_kind(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.type if creds and creds.type else "ClusterProviderConfig"
+
+    def _cred_name(self) -> str:
+        creds = self.xr.spec.credentials
+        return creds.name if creds and creds.name else "default"
+
     def compose_resource_group(self) -> None:
         """Compose a dedicated resource group holding every Azure resource of
         the cluster, so tearing down the AKSCluster leaves nothing behind."""
@@ -239,6 +247,10 @@ class Composer:
             rgv1beta1.ResourceGroup(
                 metadata=metav1.ObjectMeta(name=_cluster_name(self.xr)),
                 spec=rgv1beta1.Spec(
+                    providerConfigRef=rgv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=rgv1beta1.ForProvider(
                         location=self.xr.spec.location,
                     ),
@@ -259,6 +271,10 @@ class Composer:
             self.rsp.desired.resources["virtual-network"],
             vnetv1beta1.VirtualNetwork(
                 spec=vnetv1beta1.Spec(
+                    providerConfigRef=vnetv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=vnetv1beta1.ForProvider(
                         location=self.xr.spec.location,
                         addressSpace=[networking.vnetCidr],
@@ -274,6 +290,10 @@ class Composer:
             self.rsp.desired.resources["subnet"],
             subnetv1beta1.Subnet(
                 spec=subnetv1beta1.Spec(
+                    providerConfigRef=subnetv1beta1.ProviderConfigRef(
+                        kind=self._cred_kind(),
+                        name=self._cred_name(),
+                    ),
                     forProvider=subnetv1beta1.ForProvider(
                         addressPrefixes=[networking.subnetCidr],
                         resourceGroupNameSelector=subnetv1beta1.ResourceGroupNameSelector(
@@ -298,6 +318,10 @@ class Composer:
         cluster = clusterv1beta1.KubernetesCluster(
             metadata=metav1.ObjectMeta(name=_cluster_name(self.xr)),
             spec=clusterv1beta1.Spec(
+                providerConfigRef=clusterv1beta1.ProviderConfigRef(
+                    kind=self._cred_kind(),
+                    name=self._cred_name(),
+                ),
                 forProvider=clusterv1beta1.ForProvider(
                     location=self.xr.spec.location,
                     kubernetesVersion=self.xr.spec.kubernetesVersion,
@@ -385,6 +409,10 @@ class Composer:
                         annotations={_ANNOTATION_EXTERNAL_NAME: pool.name},
                     ),
                     spec=nodepoolv1beta1.Spec(
+                        providerConfigRef=nodepoolv1beta1.ProviderConfigRef(
+                            kind=self._cred_kind(),
+                            name=self._cred_name(),
+                        ),
                         managementPolicies=_NODE_POOL_MANAGEMENT,
                         initProvider=nodepoolv1beta1.InitProvider(nodeCount=pool.nodeCount),
                         forProvider=fp,

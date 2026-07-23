@@ -93,7 +93,10 @@ _TEMPLATE_CACHE_MOUNT = {
 }
 
 
-def _xr(pools: list[v1alpha1.NodePool]) -> dict:
+def _xr(
+    pools: list[v1alpha1.NodePool],
+    credentials: v1alpha1.Credentials | None = None,
+) -> dict:
     """A NebiusCluster XR with the given node pools, as a request dict."""
     return v1alpha1.NebiusCluster(
         metadata=metav1.ObjectMeta(
@@ -102,6 +105,7 @@ def _xr(pools: list[v1alpha1.NodePool]) -> dict:
         ),
         spec=v1alpha1.Spec(
             nodePools=pools,
+            credentials=credentials,
         ),
     ).model_dump(exclude_none=True, mode="json")
 
@@ -109,37 +113,42 @@ def _xr(pools: list[v1alpha1.NodePool]) -> dict:
 def _req(
     pools: list[v1alpha1.NodePool],
     observed_resources: dict[str, fnv1.Resource] | None = None,
+    credentials: v1alpha1.Credentials | None = None,
     *,
     with_provider_config: bool = True,
+    provider_config_resource: dict | None = None,
 ) -> fnv1.RunFunctionRequest:
     req = fnv1.RunFunctionRequest(
         observed=fnv1.State(
-            composite=fnv1.Resource(resource=resource.dict_to_struct(_xr(pools))),
+            composite=fnv1.Resource(resource=resource.dict_to_struct(_xr(pools, credentials))),
             resources=observed_resources or {},
         ),
     )
     if with_provider_config:
+        pc = provider_config_resource if provider_config_resource is not None else _NEBIUS_PROVIDER_CONFIG
         req.required_resources["nebius-provider-config"].items.append(
-            fnv1.Resource(resource=resource.dict_to_struct(_NEBIUS_PROVIDER_CONFIG)),
+            fnv1.Resource(resource=resource.dict_to_struct(pc)),
         )
     return req
 
 
-def _network() -> dict:
+def _network(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "vpc.nebius.m.upbound.io/v1beta1",
         "kind": "Network",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {"name": "test-cluster"},
         },
     }
 
 
-def _subnet() -> dict:
+def _subnet(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "vpc.nebius.m.upbound.io/v1beta1",
         "kind": "Subnet",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "name": "test-cluster",
                 "networkIdSelector": {"matchControllerRef": True},
@@ -149,11 +158,12 @@ def _subnet() -> dict:
     }
 
 
-def _cluster() -> dict:
+def _cluster(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "mk8s.nebius.m.upbound.io/v1beta1",
         "kind": "Cluster",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "name": "test-cluster",
                 "controlPlane": {
@@ -167,11 +177,12 @@ def _cluster() -> dict:
     }
 
 
-def _filesystem() -> dict:
+def _filesystem(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "compute.nebius.m.upbound.io/v1beta1",
         "kind": "Filesystem",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "name": "test-cluster-cache",
                 "type": "NETWORK_SSD",
@@ -254,11 +265,12 @@ def _storage_class() -> dict:
     }
 
 
-def _nodegroup_system() -> dict:
+def _nodegroup_system(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "mk8s.nebius.m.upbound.io/v1beta1",
         "kind": "NodeGroup",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "name": "test-cluster-system",
                 "parentIdSelector": {"matchControllerRef": True},
@@ -278,7 +290,12 @@ def _nodegroup_system() -> dict:
     }
 
 
-def _nodegroup_gpu(template_extra: dict, **for_provider_extra: object) -> dict:
+def _nodegroup_gpu(
+    template_extra: dict,
+    cred_kind: str = "ClusterProviderConfig",
+    cred_name: str = "default",
+    **for_provider_extra: object,
+) -> dict:
     """A GPU node group golden with the standard template, merged with the
     given scaling config and extra template fields."""
     template = {
@@ -304,6 +321,7 @@ def _nodegroup_gpu(template_extra: dict, **for_provider_extra: object) -> dict:
         "apiVersion": "mk8s.nebius.m.upbound.io/v1beta1",
         "kind": "NodeGroup",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "name": "test-cluster-gpu-h100",
                 "parentIdSelector": {"matchControllerRef": True},
@@ -580,6 +598,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                         "kind": "GpuCluster",
                                         "metadata": {"labels": {"modelplane.ai/fabric": "fabric-2"}},
                                         "spec": {
+                                            "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
                                             "forProvider": {
                                                 "name": "test-cluster-fabric-2",
                                                 "infinibandFabric": "fabric-2",
@@ -699,11 +718,95 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                     context=structpb.Struct(),
                 ),
             ),
+            Case(
+                name="custom credentials flow through to all cloud MRs",
+                req=_req(
+                    [_GPU_POOL],
+                    credentials=v1alpha1.Credentials(type="ProviderConfig", name="my-nebius-account"),
+                    provider_config_resource={
+                        "apiVersion": "nebius.m.upbound.io/v1beta1",
+                        "kind": "ProviderConfig",
+                        "metadata": {"name": "my-nebius-account", "namespace": "crossplane-system"},
+                        "spec": {
+                            "identity": {"type": "ServiceAccount"},
+                            "credentials": {
+                                "source": "Secret",
+                                "secretRef": {
+                                    "namespace": "crossplane-system",
+                                    "name": "nebius-credentials",
+                                    "key": "credentials.json",
+                                },
+                            },
+                            "projectID": "project-e00test",
+                        },
+                    },
+                ),
+                want=fnv1.RunFunctionResponse(
+                    meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+                    desired=fnv1.State(
+                        composite=fnv1.Resource(resource=resource.dict_to_struct(_status())),
+                        resources={
+                            "network": fnv1.Resource(
+                                resource=resource.dict_to_struct(_network("ProviderConfig", "my-nebius-account")),
+                            ),
+                            "subnet": fnv1.Resource(
+                                resource=resource.dict_to_struct(_subnet("ProviderConfig", "my-nebius-account")),
+                            ),
+                            "cluster": fnv1.Resource(
+                                resource=resource.dict_to_struct(_cluster("ProviderConfig", "my-nebius-account")),
+                            ),
+                            "filesystem": fnv1.Resource(
+                                resource=resource.dict_to_struct(_filesystem("ProviderConfig", "my-nebius-account")),
+                            ),
+                            "cloud-init": fnv1.Resource(
+                                resource=resource.dict_to_struct(_cloud_init_secret()),
+                                ready=fnv1.READY_TRUE,
+                            ),
+                            "nodegroup-system": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _nodegroup_system("ProviderConfig", "my-nebius-account"),
+                                ),
+                            ),
+                            "nodegroup-gpu-h100": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _nodegroup_gpu(
+                                        {},
+                                        "ProviderConfig",
+                                        "my-nebius-account",
+                                        autoscaling={"minNodeCount": 1, "maxNodeCount": 4},
+                                    ),
+                                ),
+                            ),
+                            "provider-config-kubernetes": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _provider_config("kubernetes.m.crossplane.io/v1alpha1", "ProviderConfig"),
+                                ),
+                                ready=fnv1.READY_TRUE,
+                            ),
+                            "provider-config-helm": fnv1.Resource(
+                                resource=resource.dict_to_struct(
+                                    _provider_config("helm.m.crossplane.io/v1beta1", "ProviderConfig"),
+                                ),
+                                ready=fnv1.READY_TRUE,
+                            ),
+                        },
+                    ),
+                    context=structpb.Struct(),
+                ),
+            ),
         ]
 
-        # Every compose path declares the provider config requirement.
-        for case in cases:
+        # Every compose path declares the provider config requirement; the
+        # selector kind and name vary by credentials.
+        custom_creds_selector = fnv1.ResourceSelector(
+            api_version="nebius.m.upbound.io/v1beta1",
+            kind="ProviderConfig",
+            match_name="my-nebius-account",
+            namespace="modelplane-system",
+        )
+        for case in cases[:-1]:
             case.want.requirements.resources["nebius-provider-config"].CopyFrom(_PROVIDER_CONFIG_SELECTOR)
+        cases[-1].want.requirements.resources["nebius-provider-config"].CopyFrom(custom_creds_selector)
 
         for case in cases:
             with self.subTest(case.name):

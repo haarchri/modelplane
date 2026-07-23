@@ -50,7 +50,7 @@ _PRIVATE_SUBNET_B = "test-cluster-private-subnet-us-west-2b-b7832"
 _PRIVATE_SUBNET_C = "test-cluster-private-subnet-us-west-2c-ef57d"
 
 
-def _xr() -> v1alpha1.EKSCluster:
+def _xr(credentials: v1alpha1.Credentials | None = None) -> v1alpha1.EKSCluster:
     return v1alpha1.EKSCluster(
         metadata=metav1.ObjectMeta(
             name="test-cluster",
@@ -58,6 +58,7 @@ def _xr() -> v1alpha1.EKSCluster:
         ),
         spec=v1alpha1.Spec(
             region="us-west-2",
+            credentials=credentials,
             nodePools=[
                 v1alpha1.NodePool(
                     name="gpu-l4",
@@ -112,11 +113,12 @@ def _xr_capacity_block() -> v1alpha1.EKSCluster:
     )
 
 
-def _launch_template() -> dict:
+def _launch_template(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "LaunchTemplate",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "name": _LAUNCH_TEMPLATE_NAME,
@@ -136,11 +138,12 @@ def _launch_template() -> dict:
     }
 
 
-def _gpu_node_group_capacity_block() -> dict:
+def _gpu_node_group_capacity_block(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "NodeGroup",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "managementPolicies": ["Observe", "Create", "Update", "Delete"],
             "initProvider": {"scalingConfig": {"desiredSize": 2}},
             "forProvider": {
@@ -219,12 +222,13 @@ def _efa_network_interface(card: int, security_groups: list[str] | None = None) 
     return ni
 
 
-def _launch_template_efa() -> dict:
+def _launch_template_efa(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     # p5en.48xlarge has 16 network cards; one EFA interface per card.
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "LaunchTemplate",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "name": _EFA_LAUNCH_TEMPLATE_NAME,
@@ -238,7 +242,7 @@ def _launch_template_efa() -> dict:
     }
 
 
-def _efa_security_group() -> dict:
+def _efa_security_group(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "SecurityGroup",
@@ -247,6 +251,7 @@ def _efa_security_group() -> dict:
             "labels": {"modelplane.ai/fabric": "EFA"},
         },
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "name": "test-cluster-efa",
@@ -257,11 +262,12 @@ def _efa_security_group() -> dict:
     }
 
 
-def _efa_security_group_ingress() -> dict:
+def _efa_security_group_ingress(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "SecurityGroupIngressRule",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "ipProtocol": "-1",
@@ -278,11 +284,12 @@ def _efa_security_group_ingress() -> dict:
     }
 
 
-def _efa_security_group_egress() -> dict:
+def _efa_security_group_egress(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "SecurityGroupEgressRule",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "ipProtocol": "-1",
@@ -299,11 +306,12 @@ def _efa_security_group_egress() -> dict:
     }
 
 
-def _gpu_node_group_efa() -> dict:
+def _gpu_node_group_efa(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "NodeGroup",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "managementPolicies": ["Observe", "Create", "Update", "Delete"],
             "initProvider": {"scalingConfig": {"desiredSize": 2}},
             "forProvider": {
@@ -345,11 +353,12 @@ def _ready_condition() -> dict:
     }
 
 
-def _vpc() -> dict:
+def _vpc(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "VPC",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "cidrBlock": "10.0.0.0/16",
@@ -360,7 +369,9 @@ def _vpc() -> dict:
     }
 
 
-def _subnet(name: str, az: str, cidr: str) -> dict:
+def _subnet(
+    name: str, az: str, cidr: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default"
+) -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "Subnet",
@@ -369,6 +380,7 @@ def _subnet(name: str, az: str, cidr: str) -> dict:
             "labels": {"modelplane.ai/zone": az, "modelplane.ai/subnet-tier": "public"},
         },
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "availabilityZone": az,
@@ -381,7 +393,9 @@ def _subnet(name: str, az: str, cidr: str) -> dict:
     }
 
 
-def _private_subnet(name: str, az: str, cidr: str) -> dict:
+def _private_subnet(
+    name: str, az: str, cidr: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default"
+) -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "Subnet",
@@ -390,6 +404,7 @@ def _private_subnet(name: str, az: str, cidr: str) -> dict:
             "labels": {"modelplane.ai/zone": az, "modelplane.ai/subnet-tier": "private"},
         },
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "availabilityZone": az,
@@ -401,11 +416,12 @@ def _private_subnet(name: str, az: str, cidr: str) -> dict:
     }
 
 
-def _internet_gateway() -> dict:
+def _internet_gateway(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "InternetGateway",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "vpcIdSelector": {"matchControllerRef": True},
@@ -414,12 +430,13 @@ def _internet_gateway() -> dict:
     }
 
 
-def _route_table() -> dict:
+def _route_table(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "RouteTable",
         "metadata": {"labels": {"modelplane.ai/subnet-tier": "public"}},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "vpcIdSelector": {"matchControllerRef": True},
@@ -428,11 +445,12 @@ def _route_table() -> dict:
     }
 
 
-def _route_default() -> dict:
+def _route_default(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "Route",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "destinationCidrBlock": "0.0.0.0/0",
@@ -446,11 +464,12 @@ def _route_default() -> dict:
     }
 
 
-def _nat_eip() -> dict:
+def _nat_eip(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "EIP",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "domain": "vpc",
@@ -459,11 +478,12 @@ def _nat_eip() -> dict:
     }
 
 
-def _nat_gateway(az: str) -> dict:
+def _nat_gateway(az: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "NATGateway",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "allocationIdSelector": {"matchControllerRef": True},
@@ -479,12 +499,13 @@ def _nat_gateway(az: str) -> dict:
     }
 
 
-def _private_route_table() -> dict:
+def _private_route_table(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "RouteTable",
         "metadata": {"labels": {"modelplane.ai/subnet-tier": "private"}},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "vpcIdSelector": {"matchControllerRef": True},
@@ -493,11 +514,12 @@ def _private_route_table() -> dict:
     }
 
 
-def _private_route_default() -> dict:
+def _private_route_default(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "Route",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "destinationCidrBlock": "0.0.0.0/0",
@@ -511,11 +533,12 @@ def _private_route_default() -> dict:
     }
 
 
-def _route_table_association(az: str) -> dict:
+def _route_table_association(az: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "RouteTableAssociation",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "routeTableIdSelector": {
@@ -534,11 +557,14 @@ def _route_table_association(az: str) -> dict:
     }
 
 
-def _private_route_table_association(az: str) -> dict:
+def _private_route_table_association(
+    az: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default"
+) -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "RouteTableAssociation",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "routeTableIdSelector": {
@@ -557,20 +583,26 @@ def _private_route_table_association(az: str) -> dict:
     }
 
 
-def _role(role: str, assume_policy: str) -> dict:
+def _role(role: str, assume_policy: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "iam.aws.m.upbound.io/v1beta1",
         "kind": "Role",
         "metadata": {"labels": {"modelplane.ai/iam-role": role}},
-        "spec": {"forProvider": {"assumeRolePolicy": assume_policy}},
+        "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
+            "forProvider": {"assumeRolePolicy": assume_policy},
+        },
     }
 
 
-def _role_policy_attachment(role: str, arn: str) -> dict:
+def _role_policy_attachment(
+    role: str, arn: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default"
+) -> dict:
     return {
         "apiVersion": "iam.aws.m.upbound.io/v1beta1",
         "kind": "RolePolicyAttachment",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "policyArn": arn,
                 "roleSelector": {
@@ -618,12 +650,13 @@ _POLICY_CLUSTER_AUTOSCALER = (
 )
 
 
-def _eks_cluster() -> dict:
+def _eks_cluster(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "Cluster",
         "metadata": {"name": "modelplane-system-test-cluster-eks-0865f"},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "version": "1.36",
@@ -645,11 +678,12 @@ def _eks_cluster() -> dict:
     }
 
 
-def _cluster_auth() -> dict:
+def _cluster_auth(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "ClusterAuth",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "clusterNameSelector": {"matchControllerRef": True},
@@ -659,11 +693,12 @@ def _cluster_auth() -> dict:
     }
 
 
-def _system_node_group() -> dict:
+def _system_node_group(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "NodeGroup",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "managementPolicies": ["Observe", "Create", "Update", "Delete"],
             "initProvider": {"scalingConfig": {"desiredSize": 1}},
             "forProvider": {
@@ -686,11 +721,12 @@ def _system_node_group() -> dict:
     }
 
 
-def _gpu_node_group() -> dict:
+def _gpu_node_group(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "NodeGroup",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "managementPolicies": ["Observe", "Create", "Update", "Delete"],
             "initProvider": {"scalingConfig": {"desiredSize": 1}},
             "forProvider": {
@@ -721,11 +757,12 @@ def _gpu_node_group() -> dict:
     }
 
 
-def _addon(name: str) -> dict:
+def _addon(name: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "Addon",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "addonName": name,
@@ -735,20 +772,24 @@ def _addon(name: str) -> dict:
     }
 
 
-def _efs_filesystem() -> dict:
+def _efs_filesystem(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "efs.aws.m.upbound.io/v1beta1",
         "kind": "FileSystem",
-        "spec": {"forProvider": {"region": "us-west-2", "throughputMode": "elastic", "encrypted": True}},
+        "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
+            "forProvider": {"region": "us-west-2", "throughputMode": "elastic", "encrypted": True},
+        },
     }
 
 
-def _efs_security_group() -> dict:
+def _efs_security_group(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "SecurityGroup",
         "metadata": {"labels": {"modelplane.ai/sg-role": "efs"}},
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "name": "test-cluster-efs",
@@ -759,11 +800,12 @@ def _efs_security_group() -> dict:
     }
 
 
-def _efs_security_group_ingress() -> dict:
+def _efs_security_group_ingress(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "ec2.aws.m.upbound.io/v1beta1",
         "kind": "SecurityGroupIngressRule",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "ipProtocol": "tcp",
@@ -779,11 +821,12 @@ def _efs_security_group_ingress() -> dict:
     }
 
 
-def _efs_mount_target(subnet_name: str) -> dict:
+def _efs_mount_target(subnet_name: str, cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "efs.aws.m.upbound.io/v1beta1",
         "kind": "MountTarget",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "fileSystemIdSelector": {"matchControllerRef": True},
@@ -797,11 +840,12 @@ def _efs_mount_target(subnet_name: str) -> dict:
     }
 
 
-def _pod_identity_association() -> dict:
+def _pod_identity_association(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "PodIdentityAssociation",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "namespace": "kube-system",
@@ -843,20 +887,24 @@ def _storage_class_object(filesystem_id: str) -> dict:
     }
 
 
-def _autoscaler_policy() -> dict:
+def _autoscaler_policy(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "iam.aws.m.upbound.io/v1beta1",
         "kind": "Policy",
         "metadata": {"labels": {"modelplane.ai/iam-role": "cluster-autoscaler"}},
-        "spec": {"forProvider": {"policy": _POLICY_CLUSTER_AUTOSCALER}},
+        "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
+            "forProvider": {"policy": _POLICY_CLUSTER_AUTOSCALER},
+        },
     }
 
 
-def _autoscaler_attachment() -> dict:
+def _autoscaler_attachment(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "iam.aws.m.upbound.io/v1beta1",
         "kind": "RolePolicyAttachment",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "policyArnSelector": {
                     "matchControllerRef": True,
@@ -871,11 +919,12 @@ def _autoscaler_attachment() -> dict:
     }
 
 
-def _autoscaler_pod_identity() -> dict:
+def _autoscaler_pod_identity(cred_kind: str = "ClusterProviderConfig", cred_name: str = "default") -> dict:
     return {
         "apiVersion": "eks.aws.m.upbound.io/v1beta1",
         "kind": "PodIdentityAssociation",
         "spec": {
+            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
             "forProvider": {
                 "region": "us-west-2",
                 "namespace": "kube-system",
@@ -1515,6 +1564,102 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             None,
         )
         self.assertNotIn("release-efa-dra-driver", got_none.desired.resources)
+
+    async def test_custom_credentials(self) -> None:
+        """Custom credentials flow through to all cloud MRs.
+
+        When spec.credentials is set with a custom type and name, every cloud
+        provider MR (VPC, subnets, IAM roles, EKS cluster, node groups, addons,
+        EFS resources, autoscaler IAM resources) carries the corresponding
+        providerConfigRef. The kubeconfig-based resources (provider-config-kubernetes,
+        provider-config-helm, release-*, storage-class-*) are unaffected.
+        """
+        ck = "ProviderConfig"
+        cn = "my-aws-account"
+        creds = v1alpha1.Credentials(type=ck, name=cn)
+
+        req = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        _xr(credentials=creds).model_dump(exclude_none=True, mode="json"),
+                    ),
+                ),
+            ),
+        )
+
+        got = await self.runner.RunFunction(req, None)
+        rs = got.desired.resources
+
+        cloud_checks = {
+            "vpc": _vpc(ck, cn),
+            "subnet-0": _subnet(_SUBNET_A, "us-west-2a", "10.0.0.0/20", ck, cn),
+            "subnet-1": _subnet(_SUBNET_B, "us-west-2b", "10.0.16.0/20", ck, cn),
+            "subnet-2": _subnet(_SUBNET_C, "us-west-2c", "10.0.32.0/20", ck, cn),
+            "private-subnet-0": _private_subnet(_PRIVATE_SUBNET_A, "us-west-2a", "10.0.48.0/20", ck, cn),
+            "private-subnet-1": _private_subnet(_PRIVATE_SUBNET_B, "us-west-2b", "10.0.64.0/20", ck, cn),
+            "private-subnet-2": _private_subnet(_PRIVATE_SUBNET_C, "us-west-2c", "10.0.80.0/20", ck, cn),
+            "internet-gateway": _internet_gateway(ck, cn),
+            "nat-eip": _nat_eip(ck, cn),
+            "nat-gateway": _nat_gateway("us-west-2a", ck, cn),
+            "route-table": _route_table(ck, cn),
+            "route-default": _route_default(ck, cn),
+            "private-route-table": _private_route_table(ck, cn),
+            "private-route-default": _private_route_default(ck, cn),
+            "route-table-association-0": _route_table_association("us-west-2a", ck, cn),
+            "route-table-association-1": _route_table_association("us-west-2b", ck, cn),
+            "route-table-association-2": _route_table_association("us-west-2c", ck, cn),
+            "private-route-table-association-0": _private_route_table_association("us-west-2a", ck, cn),
+            "private-route-table-association-1": _private_route_table_association("us-west-2b", ck, cn),
+            "private-route-table-association-2": _private_route_table_association("us-west-2c", ck, cn),
+            "iam-role-cluster": _role("cluster", _ASSUME_CLUSTER, ck, cn),
+            "iam-attach-cluster-policy": _role_policy_attachment(
+                "cluster", "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy", ck, cn
+            ),
+            "iam-role-node": _role("node", _ASSUME_NODE, ck, cn),
+            "iam-attach-node-worker": _role_policy_attachment(
+                "node", "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy", ck, cn
+            ),
+            "iam-attach-node-cni": _role_policy_attachment(
+                "node", "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy", ck, cn
+            ),
+            "iam-attach-node-ecr": _role_policy_attachment(
+                "node", "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly", ck, cn
+            ),
+            "cluster": _eks_cluster(ck, cn),
+            "cluster-auth": _cluster_auth(ck, cn),
+            "nodegroup-system": _system_node_group(ck, cn),
+            "nodegroup-gpu-l4": _gpu_node_group(ck, cn),
+            "addon-vpc-cni": _addon("vpc-cni", ck, cn),
+            "addon-kube-proxy": _addon("kube-proxy", ck, cn),
+            "addon-coredns": _addon("coredns", ck, cn),
+            "efs-filesystem": _efs_filesystem(ck, cn),
+            "efs-security-group": _efs_security_group(ck, cn),
+            "efs-security-group-ingress": _efs_security_group_ingress(ck, cn),
+            "efs-mount-target-0": _efs_mount_target(_PRIVATE_SUBNET_A, ck, cn),
+            "efs-mount-target-1": _efs_mount_target(_PRIVATE_SUBNET_B, ck, cn),
+            "efs-mount-target-2": _efs_mount_target(_PRIVATE_SUBNET_C, ck, cn),
+            "iam-role-efs-csi": _role("efs-csi", _ASSUME_POD_IDENTITY, ck, cn),
+            "iam-attach-efs-csi": _role_policy_attachment("efs-csi", _POLICY_EFS_CSI, ck, cn),
+            "addon-eks-pod-identity-agent": _addon("eks-pod-identity-agent", ck, cn),
+            "pod-identity-efs-csi": _pod_identity_association(ck, cn),
+            "addon-aws-efs-csi-driver": _addon("aws-efs-csi-driver", ck, cn),
+            "iam-policy-cluster-autoscaler": _autoscaler_policy(ck, cn),
+            "iam-role-cluster-autoscaler": _role("cluster-autoscaler", _ASSUME_POD_IDENTITY, ck, cn),
+            "iam-attach-cluster-autoscaler": _autoscaler_attachment(ck, cn),
+            "pod-identity-cluster-autoscaler": _autoscaler_pod_identity(ck, cn),
+        }
+
+        for key, want in cloud_checks.items():
+            with self.subTest(resource=key):
+                self.assertIn(key, rs, f"resource {key!r} not found in desired")
+                got_dict = resource.struct_to_dict(rs[key].resource)
+                self.assertEqual(want, got_dict, f"resource {key!r} mismatch")
+
+        # kubeconfig-based resources must NOT carry the cloud providerConfigRef
+        for key in ("provider-config-kubernetes", "provider-config-helm"):
+            got_dict = resource.struct_to_dict(rs[key].resource)
+            self.assertNotIn("providerConfigRef", got_dict.get("spec", {}), f"{key} should not have providerConfigRef")
 
 
 if __name__ == "__main__":

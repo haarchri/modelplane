@@ -16,7 +16,6 @@ spec:
   cluster:
     source: GKE
     gke:
-      project: my-gcp-project  # Replace with your GCP project ID.
       region: us-central1
   nodePools:
   - name: gpu-l4

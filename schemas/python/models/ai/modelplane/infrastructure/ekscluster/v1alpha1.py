@@ -10,6 +10,13 @@ from pydantic import AwareDatetime, BaseModel, Field, RootModel, conint, constr
 from .....io.k8s.apimachinery.pkg.apis.meta import v1
 
 
+class Credentials(BaseModel):
+    name: constr(min_length=1, max_length=253) | None = 'default'
+    type: Literal['ProviderConfig', 'ClusterProviderConfig'] | None = (
+        'ClusterProviderConfig'
+    )
+
+
 class CompositionRef(BaseModel):
     name: str
 
@@ -129,6 +136,10 @@ class NodePool(BaseModel):
 
 
 class Spec(BaseModel):
+    credentials: Credentials | None = None
+    """
+    AWS ProviderConfig or ClusterProviderConfig used to authenticate to the AWS API. Defaults to the ClusterProviderConfig named default.
+    """
     crossplane: Crossplane | None = None
     """
     Configures how Crossplane will reconcile this composite resource

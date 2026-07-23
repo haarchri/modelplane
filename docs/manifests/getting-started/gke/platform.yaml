@@ -33,7 +33,6 @@ spec:
   cluster:
     source: GKE
     gke:
-      project: my-gcp-project
       region: us-central1
   nodePools:
   - name: gpu-l4

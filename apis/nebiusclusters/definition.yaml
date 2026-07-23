@@ -25,9 +25,8 @@ spec:
           kubeconfig. The kubeconfig carries only the cluster endpoint and CA
           certificate - Nebius clusters authenticate every client through
           Nebius IAM - so consumers pair it with the credentials Secret of
-          the Nebius ClusterProviderConfig named default, the same identity
-          that provisions the cluster. The cluster is created in the project
-          that ClusterProviderConfig sets as its projectID; Nebius projects
+          the config referenced by spec.credentials. The cluster is created
+          in the project that config sets as its projectID; Nebius projects
           are bound to a region, so the project also determines where the
           cluster runs.
         properties:
@@ -46,6 +45,25 @@ spec:
                   available.
                 minLength: 1
                 maxLength: 16
+              credentials:
+                type: object
+                description: >-
+                  Nebius ProviderConfig or ClusterProviderConfig used to
+                  authenticate to the Nebius API. Defaults to the
+                  ClusterProviderConfig named default. The cluster is created
+                  in the project the referenced config sets as its projectID.
+                properties:
+                  type:
+                    type: string
+                    default: ClusterProviderConfig
+                    enum:
+                    - ProviderConfig
+                    - ClusterProviderConfig
+                  name:
+                    type: string
+                    default: default
+                    minLength: 1
+                    maxLength: 253
               nodePools:
                 type: array
                 description: >-
@@ -260,7 +278,7 @@ spec:
                         Namespace of the Secret, when it isn't this
                         NebiusCluster's namespace. Set on the credentials
                         entry when the credential is reused from the Secret
-                        the Nebius ClusterProviderConfig references.
+                        referenced by spec.credentials.
                       maxLength: 253
               cache:
                 type: object

@@ -26,15 +26,7 @@ served in this run. Apply the platform side first, then the ML side. The GKE
 {{< tab "GKE" >}}
 {{< manifests "examples/llama-3.1-8b/inference-class-gke.yaml" >}}
 
-{{< manifests path="examples/llama-3.1-8b/inference-cluster-gke.yaml" apply="false" >}}
-
-{{< editCode >}}
-```bash
-curl -fsSL {{< manifest-url "examples/llama-3.1-8b/inference-cluster-gke.yaml" >}} \
-  | sed 's/my-gcp-project/$@<your-gcp-project-id>$@/' \
-  | kubectl apply -f -
-```
-{{< /editCode >}}
+{{< manifests "examples/llama-3.1-8b/inference-cluster-gke.yaml" >}}
 {{< /tab >}}
 {{< /tabs >}}
 
