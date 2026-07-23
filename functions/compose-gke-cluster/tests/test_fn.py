@@ -686,3 +686,14 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 got_dict.get("spec", {}),
                 f"{key} should not have providerConfigRef",
             )
+
+        custom_selector = fnv1.ResourceSelector(
+            api_version="gcp.m.upbound.io/v1beta1",
+            kind="ProviderConfig",
+            match_name=cn,
+            namespace="modelplane-system",
+        )
+        self.assertEqual(
+            custom_selector,
+            got.requirements.resources["gcp-provider-config"],
+        )

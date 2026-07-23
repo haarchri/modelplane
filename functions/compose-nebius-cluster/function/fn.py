@@ -276,6 +276,7 @@ class Composer:
             api_version="nebius.m.upbound.io/v1beta1",
             kind=cred_kind,
             match_name=cred_name,
+            namespace=_namespace(self.xr.metadata) if cred_kind == "ProviderConfig" else None,
         )
         d = request.get_required_resource(self.req, "nebius-provider-config")
         if d is None:

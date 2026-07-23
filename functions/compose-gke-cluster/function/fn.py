@@ -191,6 +191,7 @@ class Composer:
             api_version="gcp.m.upbound.io/v1beta1",
             kind=cred_kind,
             match_name=cred_name,
+            namespace=_namespace(self.xr.metadata) if cred_kind == "ProviderConfig" else None,
         )
         d = request.get_required_resource(self.req, "gcp-provider-config")
         if d is None:

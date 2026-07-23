@@ -802,6 +802,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             api_version="nebius.m.upbound.io/v1beta1",
             kind="ProviderConfig",
             match_name="my-nebius-account",
+            namespace="modelplane-system",
         )
         for case in cases[:-1]:
             case.want.requirements.resources["nebius-provider-config"].CopyFrom(_PROVIDER_CONFIG_SELECTOR)
