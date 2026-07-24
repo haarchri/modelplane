@@ -156,12 +156,17 @@ class FunctionRunner(grpcv1.FunctionRunnerServiceServicer):
 
 
 class Composer:
+    """Composes the GKE cluster, its networking, node pools, service account,
+    and ProviderConfigs from a GKECluster composite resource."""
+
     def __init__(self, req: fnv1.RunFunctionRequest, rsp: fnv1.RunFunctionResponse) -> None:
+        """Create a new Composer for the given request and response."""
         self.req = req
         self.rsp = rsp
         self.xr = v1alpha1.GKECluster(**resource.struct_to_dict(req.observed.composite.resource))
 
     def compose(self) -> None:
+        """Compose all desired resources for the GKECluster and mark readiness."""
         self.compose_network()
         self.compose_filestore_api()
         self.compose_subnet()
@@ -175,6 +180,7 @@ class Composer:
         self.mark_readiness()
 
     def compose_network(self) -> None:
+        """Compose the VPC network the cluster and subnet attach to."""
         resource.update(
             self.rsp.desired.resources["network"],
             networkv1beta1.Network(
@@ -205,6 +211,7 @@ class Composer:
         )
 
     def compose_subnet(self) -> None:
+        """Compose the subnet with pod and service secondary ranges for the cluster."""
         networking = self.xr.spec.networking or v1alpha1.Networking()
 
         resource.update(
@@ -234,6 +241,7 @@ class Composer:
         )
 
     def compose_cluster(self) -> None:
+        """Compose the GKE cluster, writing its kubeconfig to a connection secret."""
         resource.update(
             self.rsp.desired.resources["cluster"],
             clusterv1beta1.Cluster(
@@ -280,6 +288,7 @@ class Composer:
         )
 
     def compose_node_pools(self) -> None:
+        """Compose the system pool plus one node pool per entry in spec.nodePools."""
         self._compose_system_pool()
         for pool in self.xr.spec.nodePools:
             node_config = nodepoolv1beta1.NodeConfig(
@@ -366,6 +375,7 @@ class Composer:
         )
 
     def compose_service_account(self) -> None:
+        """Compose the cluster's service account and its connection-secreted key."""
         resource.update(
             self.rsp.desired.resources["service-account"],
             sav1beta1.ServiceAccount(
@@ -415,6 +425,7 @@ class Composer:
         )
 
     def compose_provider_configs(self) -> None:
+        """Compose the kubernetes and helm ProviderConfigs authenticating to the cluster."""
         resource.update(
             self.rsp.desired.resources["provider-config-kubernetes"],
             k8spcv1alpha1.ProviderConfig(
@@ -505,6 +516,7 @@ class Composer:
         self.rsp.desired.resources["storage-class-rwx"].ready = fnv1.READY_TRUE
 
     def write_status(self) -> None:
+        """Publish the kubeconfig and SA key secret references and the RWX cache class."""
         status = v1alpha1.Status(
             secrets=[
                 v1alpha1.Secret(
