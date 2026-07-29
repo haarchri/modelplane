@@ -104,6 +104,7 @@ Helm
 vLLM
 [Hh]uggingFace
 NVIDIA
+NVLink
 Envoy
 Traefik
 MetalLB
@@ -160,6 +161,7 @@ Qwen3-Coder
 Kimi-K2
 Kimi
 Llama
+Laguna[\w.-]*
 NIM
 GGUF
 LoRA

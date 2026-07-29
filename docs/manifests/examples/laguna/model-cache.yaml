@@ -1,0 +1,17 @@
+# The model weights, staged once per cluster on a Nebius shared filesystem
+# (RWX) and mounted at /mnt/models in the serving pod, so the engine reads
+# FP8 weights (~121 GiB) locally instead of pulling them from Hugging Face
+# on every start.
+#
+# poolside/Laguna-S-2.1-FP8 is a public repo (OpenMDW-1.1), so no authSecret /
+# HF token is needed. Add one only if you point this at a gated repo.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelCache
+metadata:
+  name: laguna
+  namespace: ml-team
+spec:
+  source: HuggingFace
+  huggingFace:
+    repo: poolside/Laguna-S-2.1-FP8
+    sizeGiB: 200
