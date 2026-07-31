@@ -1,0 +1,31 @@
+# InferenceClass for the A100 shape on AKS. One NVIDIA A100 80GB on a
+# Standard_NC24ads_A100_v4. The GPU is declared as a DRA device: the scheduler
+# matches a ModelDeployment's nodeSelector against this capacity, then DRA
+# binds the physical GPU to the serving pod.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceClass
+metadata:
+  name: aks-a100-1x-nc24ads
+spec:
+  description: "AKS Standard_NC24ads_A100_v4, 1x NVIDIA A100 80GB"
+  provisioning:
+    provider: AKS
+    aks:
+      vmSize: Standard_NC24ads_A100_v4
+      diskSizeGb: 200
+      accelerator:
+        type: nvidia-a100
+        count: 1
+  devices:
+  - name: gpu
+    claim: DRA
+    driver: gpu.nvidia.com
+    deviceClassName: gpu.nvidia.com
+    count: 1
+    attributes:
+      architecture: { string: Ampere }
+      cudaComputeCapability: { version: "8.0.0" }
+    capacity:
+      # The H100's usable VRAM as the NVIDIA DRA driver reports it, not the
+      # nominal 80GB.
+      memory: { value: "81920Mi" }

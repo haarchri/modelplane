@@ -1,0 +1,41 @@
+# Qwen2.5-72B Instruct (AWQ INT4) served on a single 80GB GPU per replica by
+# vLLM. The model layer is cloud-agnostic: the >=70Gi CEL selector matches the
+# A100 class on AKS (81920Mi) and the H100 class on Nebius (81559Mi) alike.
+# Replicas are fleet-wide, not per-cluster, and each pool holds exactly one
+# such GPU, so with both platforms applied the two replicas land one on the
+# A100 and one on the H100. With a single platform applied, drop replicas to 1.
+#
+# 72B in AWQ INT4 is ~40Gi of weights, leaving room for the KV cache on an
+# 80GB GPU. --max-model-len caps the context at 8192 - raise it only as far as
+# the leftover VRAM allows.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelDeployment
+metadata:
+  name: qwen-72b
+  namespace: ml-team
+spec:
+  replicas: 2
+  template:
+    spec:
+      modelCacheRef:
+        name: qwen-72b-awq
+      engines:
+      - name: qwen-72b
+        members:
+        - role: Standalone
+          nodeSelector:
+            devices:
+            - name: gpu
+              count: 1
+              selectors:
+              - cel: |
+                  device.capacity["gpu.nvidia.com"].memory.compareTo(quantity("70Gi")) >= 0
+          template:
+            spec:
+              containers:
+              - name: engine
+                image: vllm/vllm-openai:v0.23.0
+                args:
+                - --model=/mnt/models
+                - --served-model-name=qwen-72b
+                - --max-model-len=8192

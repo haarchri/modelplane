@@ -1,0 +1,34 @@
+# InferenceClass for the H100 shape on Nebius. One NVIDIA H100 80GB on the
+# gpu-h100-sxm platform, with the cuda13.0 driver preset mk8s preinstalls on
+# the pool's nodes. The GPU is declared as a DRA device: the scheduler matches
+# a ModelDeployment's nodeSelector against this capacity, then DRA binds the
+# physical GPU to the serving pod.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceClass
+metadata:
+  name: nebius-h100-1x-sxm
+spec:
+  description: "Nebius gpu-h100-sxm, 1x NVIDIA H100 80GB"
+  provisioning:
+    provider: Nebius
+    nebius:
+      platform: gpu-h100-sxm
+      preset: 1gpu-16vcpu-200gb
+      diskSizeGb: 200
+      driversPreset: cuda13.0
+      accelerator:
+        type: nvidia-h100
+        count: 1
+  devices:
+  - name: gpu
+    claim: DRA
+    driver: gpu.nvidia.com
+    deviceClassName: gpu.nvidia.com
+    count: 1
+    attributes:
+      architecture: { string: Hopper }
+      cudaComputeCapability: { version: "9.0.0" }
+    capacity:
+      # The H100's usable VRAM as the NVIDIA DRA driver reports it, not the
+      # nominal 80GB.
+      memory: { value: "81559Mi" }

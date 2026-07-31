@@ -1,0 +1,15 @@
+# Exposes the qwen-72b deployment's endpoints as a single OpenAI-compatible
+# URL. Modelplane labels each composed ModelEndpoint with the deployment name,
+# so this selector reaches every replica. Read the public address from
+# status.address:
+#   kubectl get ms qwen-72b -n ml-team -o jsonpath='{.status.address}'
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelService
+metadata:
+  name: qwen-72b
+  namespace: ml-team
+spec:
+  endpoints:
+  - selector:
+      matchLabels:
+        modelplane.ai/deployment: qwen-72b
