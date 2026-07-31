@@ -137,16 +137,58 @@
             rm -f _output/functions
             ln -s ${functionsPkg} _output/functions
 
-            crossplane project run "$@"
+            # The CLI's default --timeout of 5m covers waiting for the
+            # installed configuration to become healthy, which first-time
+            # image pulls through nix.sh's Docker-in-Docker daemon regularly
+            # exceed. Default to a longer wait; an explicit --timeout on the
+            # command line still wins.
+            timeout_args=(--timeout 15m)
+            for arg in "$@"; do
+              case "$arg" in
+                --timeout | --timeout=*) timeout_args=() ;;
+              esac
+            done
+
+            # On failure, dump the package revision state: installs time out
+            # with only "context deadline exceeded", and under nix.sh the
+            # cluster is gone by the time anyone can look at it.
+            if ! crossplane project run "''${timeout_args[@]}" "$@"; then
+              echo ""
+              echo "crossplane project run failed; package revision state:"
+              for cluster in $(kind get clusters 2>/dev/null); do
+                kind export kubeconfig --name "$cluster" >/dev/null 2>&1 || true
+              done
+              kubectl get pkgrev || true
+              kubectl get pkgrev -o yaml || true
+              failed=1
+            else
+              # The control plane is up and healthy - finish the setup the
+              # getting-started flow otherwise does by hand. prerequisites.yaml
+              # carries the modelplane-system namespace, composition RBAC, and
+              # provider-helm's DeploymentRuntimeConfig and ImageConfig.
+              kubectl apply -f docs/manifests/getting-started/prerequisites.yaml
+
+              # crossplane project run installs providers before
+              # prerequisites.yaml is applied, and Crossplane resolves
+              # ImageConfig runtime configs only at ProviderRevision creation -
+              # so provider-helm always comes up on the default runtime config,
+              # whose ServiceAccount lacks the RBAC granted above. Point it at
+              # its DeploymentRuntimeConfig explicitly.
+              kubectl patch provider.pkg.crossplane.io modelplane-provider-helm --type merge \
+                -p '{"spec":{"runtimeConfigRef":{"apiVersion":"pkg.crossplane.io/v1beta1","kind":"DeploymentRuntimeConfig","name":"provider-helm-modelplane"}}}'
+            fi
 
             # When running via nix.sh, the cluster lives inside the container's
             # Docker daemon and would vanish when the container exits. Drop into
-            # a dev shell so the user can interact with it before exiting.
+            # a dev shell so the user can interact with it before exiting -
+            # after a failure, that's where to debug the cluster.
             if [ "''${NIX_SH_CONTAINER:-}" = "1" ]; then
               echo ""
               echo "Entering development shell (exit to stop)..."
               exec nix develop
             fi
+
+            exit "''${failed:-0}"
           '';
         }
       );
