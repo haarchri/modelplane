@@ -59,6 +59,12 @@ jobs:
     needs: [check]
     runs-on: ubuntu-24.04
 
+    # Secrets aren't available in if expressions, so expose the (non-secret)
+    # robot ID as an env var that the push steps can gate on. Forks don't have
+    # the secret, so their runs build the package but skip pushing it.
+    env:
+      UP_ROBOT_ID: ${{ secrets.UP_ROBOT_ID }}
+
     steps:
       # Building and pushing the package needs more disk than the runner has
       # free by default, so reclaim space we don't use.
@@ -92,11 +98,11 @@ jobs:
 
       # The Crossplane CLI uses Docker's credential store for OCI pushes.
       - name: Login to registry
-        if: secrets.UP_ROBOT_ID != ''
+        if: env.UP_ROBOT_ID != ''
         uses: docker/login-action@v3
         with:
           registry: xpkg.upbound.io
-          username: ${{ secrets.UP_ROBOT_ID }}
+          username: ${{ env.UP_ROBOT_ID }}
           password: ${{ secrets.UP_ROBOT_TOKEN }}
 
       # On a release run, fetch the GitHub release's notes so the push app
@@ -114,7 +120,7 @@ jobs:
       # With a tag input (a release) push that exact version; otherwise push a
       # dev version the push app derives from git metadata.
       - name: Push
-        if: secrets.UP_ROBOT_ID != ''
+        if: env.UP_ROBOT_ID != ''
         run: |
           if [ -n "${TAG}" ]; then
             nix run .#push --print-build-logs -- --tag "${TAG}"
