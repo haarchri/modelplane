@@ -23,13 +23,19 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-24.04
+    # Secrets aren't available in if expressions (and the env context isn't
+    # available in job-level ones), so mirror the secret into the job env and
+    # gate the steps on it. Forks don't have the secret, so their scheduled
+    # runs skip the crawl instead of failing.
+    env:
+      ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
     steps:
       - name: Checkout
+        if: env.ALGOLIA_ADMIN_KEY != ''
         uses: actions/checkout@v4
 
       - name: Crawl docs.modelplane.ai into Algolia
-        env:
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+        if: env.ALGOLIA_ADMIN_KEY != ''
         run: |
           docker run --rm \
             -e APPLICATION_ID=CQDMTRM1TJ \
