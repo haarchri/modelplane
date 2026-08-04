@@ -1,0 +1,57 @@
+# Laguna-S-2.1 FP8 served by SGLang instead of vLLM. SGLang has native
+# LagunaForCausalLM support and its own poolside_v1 reasoning and tool-call
+# parsers; the reasoning parser extracts the thinking block into a separate
+# reasoning field. Same single-node 8x H100 shape as the vLLM variant
+# (model-deployment.yaml): tensor-parallel across the 8 GPUs, weights streamed
+# from the shared ModelCache at /mnt/models.
+#
+# FP8 is auto-detected from the checkpoint's quantization_config, so no quant
+# flag or env is needed. Reasoning extraction is opt-in: the client sends
+# enable_thinking=true (chat_template_kwargs), otherwise there is no thinking
+# block to split.
+#
+# Image lmsysorg/sglang:v0.5.12.post1-cu129 - v0.5.12 is the first release with
+# Poolside Laguna support (PR #24204, which also added the poolside_v1 parsers),
+# .post1 is its point bugfix, cu129 for Hopper. The image does not auto-launch a
+# server, so the launch command is set explicitly; SGLang defaults to port
+# 30000, so --port=8000 is required for the Modelplane engine port (Modelplane
+# scrapes 8000). Poolside's trtllm_mha and DFLASH cookbook optimizations are
+# left off (not validated on H100).
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelDeployment
+metadata:
+  name: laguna
+  namespace: ml-team
+spec:
+  replicas: 1
+  template:
+    spec:
+      modelCacheRef:
+        name: laguna
+      engines:
+      - name: laguna
+        members:
+        - role: Standalone
+          nodeSelector:
+            devices:
+            - name: gpu
+              count: 8
+              selectors:
+              - cel: |
+                  device.driver == "gpu.nvidia.com" && device.capacity["gpu.nvidia.com"].memory.compareTo(quantity("79Gi")) >= 0
+          template:
+            spec:
+              containers:
+              - name: engine
+                image: lmsysorg/sglang:v0.5.12.post1-cu129
+                command: ["python3", "-m", "sglang.launch_server"]
+                args:
+                - --model-path=/mnt/models
+                - --served-model-name=laguna
+                - --tp-size=8
+                - --context-length=262144
+                - --trust-remote-code
+                - --tool-call-parser=poolside_v1
+                - --reasoning-parser=poolside_v1
+                - --host=0.0.0.0
+                - --port=8000

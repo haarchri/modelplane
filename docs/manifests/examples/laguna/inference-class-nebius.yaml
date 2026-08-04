@@ -1,0 +1,33 @@
+# An InferenceClass describing a Nebius gpu-h100-sxm node with 8x NVIDIA
+# H100 80GB. Nebius sizes nodes by platform + preset rather than an
+# instance type; gpu-h100-sxm + 8gpu-128vcpu-1600gb is one 8x H100 SXM
+# node. The devices block describes the hardware DRA-style; it is what
+# the Laguna ModelDeployment's nodeSelector matches on.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceClass
+metadata:
+  name: nebius-h100-8x
+spec:
+  description: "Nebius gpu-h100-sxm, 8x NVIDIA H100 80GB"
+  provisioning:
+    provider: Nebius
+    nebius:
+      platform: gpu-h100-sxm
+      preset: 8gpu-128vcpu-1600gb
+      diskSizeGb: 200
+      driversPreset: cuda13.0
+      accelerator:
+        type: nvidia-h100
+        count: 8
+  devices:
+  - name: gpu
+    claim: DRA
+    driver: gpu.nvidia.com
+    deviceClassName: gpu.nvidia.com
+    count: 8
+    attributes:
+      architecture: { string: Hopper }
+      cudaComputeCapability: { version: "9.0.0" }
+    capacity:
+      # H100 80GB real usable VRAM (NVIDIA DRA driver), not nominal 80GB.
+      memory: { value: "81559Mi" }
