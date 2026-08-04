@@ -1,0 +1,51 @@
+# Trim the control plane to what the BYO (source: Existing) scenario actually
+# uses. The Configuration depends on ~10 cloud providers (AWS/GCP/Azure/Nebius)
+# that only exist to *provision* clusters; here the workload cluster already
+# exists, so the compositions use only provider-kubernetes and provider-helm.
+#
+# run.sh feeds this via `crossplane project run --init-resources`, which applies
+# it BEFORE the Configuration's dependencies install, so the cloud providers
+# never activate their managed resources or run their controllers.
+
+# 1. Scale the unused cloud provider controllers to zero. The cloud packages all
+#    live under xpkg.upbound.io/upbound/provider-*, while the two we use are
+#    xpkg.upbound.io/modelplane/*, so this prefix matches only the unused ones.
+#    ImageConfig applies the runtime config to matching packages including ones
+#    installed as dependencies (Crossplane docs: packages/image-configs).
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: scale-to-zero
+spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      replicas: 0
+      template: {}
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: ImageConfig
+metadata:
+  name: dormant-cloud-providers
+spec:
+  matchImages:
+  - type: Prefix
+    prefix: xpkg.upbound.io/upbound/provider-
+  runtime:
+    configRef:
+      name: scale-to-zero
+---
+# 2. Replace the Helm chart's default catch-all MRAP (activate: ["*"]) with one
+#    that activates only the managed resources the BYO compositions use, so the
+#    cloud providers' MRs stay dormant (fewer CRDs). The compositions run
+#    provider-helm/kubernetes v2, whose MRs are namespaced (.m.crossplane.io) —
+#    the same forms the shipped apis/mrap.yaml activates — so the cluster-scoped
+#    variants aren't needed here.
+apiVersion: apiextensions.crossplane.io/v1alpha1
+kind: ManagedResourceActivationPolicy
+metadata:
+  name: default
+spec:
+  activate:
+  - "*.kubernetes.m.crossplane.io"
+  - "*.helm.m.crossplane.io"

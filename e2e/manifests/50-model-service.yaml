@@ -1,0 +1,12 @@
+# Fronts the mock deployment's replicas behind one OpenAI-compatible endpoint on
+# the control-plane gateway. Its status.address is what you curl (see README).
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelService
+metadata:
+  name: mock
+  namespace: ml-team
+spec:
+  endpoints:
+  - selector:
+      matchLabels:
+        modelplane.ai/deployment: mock-demo

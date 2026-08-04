@@ -115,6 +115,16 @@ nix flake check            # or: ./nix.sh flake check
 `nix run .#fix` auto-fixes most lint and formatting issues. Run it before
 opening a PR.
 
+`nix flake check` is the unit layer — fast and sandboxed, proving each
+composition function renders the right resources. The integration layer is
+`nix run .#e2e`, which brings up two local `kind` clusters and runs the
+whole path — scheduling, the serving-stack install on a registered cluster,
+gateway routing, a live request — with no cloud credentials. Add `-- --verify`
+and it waits for readiness, asserts a 200, and exits non-zero on failure. That
+verify command is what the label-gated `E2E` workflow runs on CI (add the
+`test-e2e` label to a PR), so a green local `--verify` and a green CI run mean
+the same thing. See `e2e/README.md`.
+
 ## Submitting changes
 
 Before opening a PR, run `nix flake check` and make sure it passes. If you

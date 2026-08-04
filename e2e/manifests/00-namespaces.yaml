@@ -1,0 +1,7 @@
+# The model resources live in ml-team; run.sh applies these manifests with
+# kubectl once the control plane is ready. modelplane-system is created earlier
+# by prerequisites.yaml, before run.sh adds the workload kubeconfig Secret to it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-team
