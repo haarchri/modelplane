@@ -99,6 +99,9 @@
                   inherit system;
                 };
               })
+              # Current Upbound CLI; nixpkgs' package lags the stable
+              # channel (see nix/upbound.nix).
+              (import ./nix/upbound.nix)
             ];
           };
         };
