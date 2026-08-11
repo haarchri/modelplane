@@ -54,12 +54,20 @@ let
   # glibc baseline is taken from the interpreter we actually ship, so uv accepts
   # every wheel that interpreter can load (manylinux tags <= our glibc). Some
   # deps, e.g. google-re2, only publish wheels for a fairly recent glibc.
+  #
+  # uv's --python-platform is a closed enum of manylinux tags that currently
+  # tops out at manylinux_2_40, so clamp the minor version to that: nixpkgs
+  # 26.05 ships glibc 2.42, which uv rejects. The clamp only excludes wheels
+  # tagged newer than 2.40, and no wheels on PyPI are tagged that new. Once uv
+  # learns the newer tags, raise or drop the clamp.
+  uvMaxManylinuxMinor = 40;
   uvPlatform =
     targetPkgs: arch:
     let
-      glibc = lib.versions.majorMinor targetPkgs.stdenv.cc.libc.version;
+      glibc = targetPkgs.stdenv.cc.libc.version;
+      minor = lib.min (lib.toInt (lib.versions.minor glibc)) uvMaxManylinuxMinor;
     in
-    "${archToUvArch.${arch}}-manylinux_${lib.replaceStrings [ "." ] [ "_" ] glibc}";
+    "${archToUvArch.${arch}}-manylinux_${lib.versions.major glibc}_${toString minor}";
 
   # uv runs on the build host, so take it from the host package set.
   inherit (pkgs.unstable) uv;
