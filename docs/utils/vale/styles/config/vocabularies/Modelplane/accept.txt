@@ -160,6 +160,10 @@ Qwen3-Coder
 Kimi-K2
 Kimi
 Llama
+Nemotron[\w.-]*
+NVFP4
+Mamba
+OpenMDW-1.1
 NIM
 GGUF
 LoRA
@@ -367,6 +371,7 @@ multi-pod
 multi-region
 multi-tenant
 multi-tenancy
+mixture-of-experts
 namespace-scoped
 namespaced
 namespaces?
