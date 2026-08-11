@@ -465,9 +465,10 @@ Modelplane expects the user to provide all the engine commands and flags needed
 to form a topology. Some of those commands need to find other pods in the
 engine: in a multi-node tensor+pipeline gang, for instance, the Ray followers
 need the Ray head's address. Modelplane injects a small set of `MODELPLANE_` env
-vars into the engine containers for this (today just
-`MODELPLANE_LEADER_ADDRESS`). For the LWS backend it aliases the variable to
-`LWS_LEADER_ADDRESS`.
+vars into the engine containers for this: `MODELPLANE_LEADER_ADDRESS`, the gang
+leader's address, and `MODELPLANE_RANK`, the pod's rank in the gang (0 for the
+leader, 1..`worker.nodes` for the followers). For the LWS backend they alias
+`LWS_LEADER_ADDRESS` and `LWS_WORKER_INDEX`.
 
 A model too large for one node shows this: tensor-parallel within each node,
 pipeline-parallel across two. One engine with a `Leader` and one `Worker`

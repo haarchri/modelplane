@@ -125,7 +125,7 @@ class Container(BaseModel):
     """
     command: list[str] | None = None
     """
-    Container entrypoint override, passed through verbatim. For a Leader or Worker, the command owns cross-node coordination and addresses the leader through $(MODELPLANE_LEADER_ADDRESS), which Modelplane injects into every engine container.
+    Container entrypoint override, passed through verbatim. For a Leader or Worker, the command owns cross-node coordination: it addresses the leader through $(MODELPLANE_LEADER_ADDRESS) and finds the pod's rank (0 for the Leader, 1..worker.nodes for followers) through $(MODELPLANE_RANK), both of which Modelplane injects into every engine container.
     """
     env: list[EnvItem] | None = None
     """

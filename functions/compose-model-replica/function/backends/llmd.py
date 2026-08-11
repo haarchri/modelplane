@@ -30,9 +30,10 @@ worker's commands and args are passed through verbatim - Modelplane injects no
 parallelism flags and no bootstrap. A multi-node launch convention Modelplane
 has never heard of still works, because the coordination asymmetry between
 running the head and joining it lives in the two members' commands, which the
-user writes. The follower addresses the leader through
-$(MODELPLANE_LEADER_ADDRESS), which Modelplane injects into every engine
-container (aliasing LWS_LEADER_ADDRESS for this backend).
+user writes. A member addresses the leader through
+$(MODELPLANE_LEADER_ADDRESS) and finds its own place in the gang through
+$(MODELPLANE_RANK), both of which Modelplane injects into every engine
+container (aliasing LWS_LEADER_ADDRESS and LWS_WORKER_INDEX for this backend).
 
 Weight loading mirrors native: the engine's --model arg is passed through
 unmodified, so the engine fetches from its source at startup using credentials
@@ -94,11 +95,11 @@ class LLMDBackend:
                 c["command"] = list(engine_container.command)
             if args:
                 c["args"] = args
-            # MODELPLANE_LEADER_ADDRESS ahead of the user's env entries, so they
-            # (and commands) can reference $(MODELPLANE_LEADER_ADDRESS). LWS
-            # prepends its own LWS_* vars ahead of all of these in the running
-            # pod.
-            env = [base.leader_address_env()]
+            # MODELPLANE_LEADER_ADDRESS and MODELPLANE_RANK ahead of the user's
+            # env entries, so they (and commands) can reference $(MODELPLANE_*).
+            # LWS prepends its own LWS_* vars ahead of all of these in the
+            # running pod.
+            env = [base.leader_address_env(), base.rank_env()]
             if engine_container.env:
                 env.extend(e.model_dump(exclude_none=True) for e in engine_container.env)
             c["env"] = env
