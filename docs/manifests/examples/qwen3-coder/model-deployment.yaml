@@ -4,8 +4,9 @@
 # shared ModelCache at /mnt/models.
 #
 # Each member requests 8 GPUs + 16 EFA interfaces per node; the scheduler
-# co-schedules the gang on the H200 pool. The worker joins the leader through
-# $(MODELPLANE_LEADER_ADDRESS), which Modelplane injects.
+# co-schedules the gang on the H200 pool. A member joins the leader through
+# $(MODELPLANE_LEADER_ADDRESS) and takes its rank from $(MODELPLANE_RANK),
+# both injected by Modelplane.
 #
 # Notes on the engine flags:
 #   --distributed-executor-backend=mp with --nnodes/--node-rank/--master-addr/
@@ -70,7 +71,7 @@ spec:
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2
                   --distributed-executor-backend=mp
-                  --nnodes=2 --node-rank=0
+                  --nnodes=2 --node-rank=$(MODELPLANE_RANK)
                   --master-addr=$(MODELPLANE_LEADER_ADDRESS)
                   --max-model-len=32768
                   --gpu-memory-utilization=0.92
@@ -111,7 +112,7 @@ spec:
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2
                   --distributed-executor-backend=mp
-                  --nnodes=2 --node-rank=1
+                  --nnodes=2 --node-rank=$(MODELPLANE_RANK)
                   --master-addr=$(MODELPLANE_LEADER_ADDRESS)
                   --headless
                   --max-model-len=32768

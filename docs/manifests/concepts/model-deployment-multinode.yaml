@@ -4,8 +4,11 @@
 # give it a Leader and a Worker member, whose worker.nodes expands to that many
 # worker pods, one per node. The scheduler picks a cluster with a pool that has
 # enough GPUs per node and enough nodes for the whole gang, and Modelplane
-# composes a LeaderWorkerSet-backed serving instance on it. The worker joins the
-# leader through $(MODELPLANE_LEADER_ADDRESS), which Modelplane injects.
+# composes a LeaderWorkerSet-backed serving instance on it. A member joins the
+# leader through $(MODELPLANE_LEADER_ADDRESS) and takes its rank from
+# $(MODELPLANE_RANK) (0 on the Leader, 1..worker.nodes on the followers), both
+# injected by Modelplane - so the same Worker template fans out to any number
+# of nodes.
 #
 # Multi-node engines require a ModelCache: every pod in the gang mounts it at
 # /mnt/models. When a member brings its own command, Modelplane does not inject
@@ -50,7 +53,7 @@ spec:
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2
                   --distributed-executor-backend=mp
-                  --nnodes=2 --node-rank=0
+                  --nnodes=2 --node-rank=$(MODELPLANE_RANK)
                   --master-addr=$(MODELPLANE_LEADER_ADDRESS)
                   --max-model-len=32768
                   --port=8000
@@ -78,7 +81,7 @@ spec:
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2
                   --distributed-executor-backend=mp
-                  --nnodes=2 --node-rank=1
+                  --nnodes=2 --node-rank=$(MODELPLANE_RANK)
                   --master-addr=$(MODELPLANE_LEADER_ADDRESS)
                   --headless
                   --max-model-len=32768

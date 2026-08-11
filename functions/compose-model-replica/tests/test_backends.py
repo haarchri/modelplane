@@ -38,6 +38,7 @@ _SERVING = "modelplane.ai/serving"
 _WORKLOAD = "modelplane.ai/workload"
 _ROLE = "modelplane.ai/lws-role"
 _LEADER_ENV = {"name": "MODELPLANE_LEADER_ADDRESS", "value": "$(LWS_LEADER_ADDRESS)"}
+_RANK_ENV = {"name": "MODELPLANE_RANK", "value": "$(LWS_WORKER_INDEX)"}
 
 # A GPU device request (claim: DRA), as compose-model-deployment stamps it.
 _GPU_CEL = 'device.capacity["gpu.nvidia.com"].memory.compareTo(quantity("80Gi")) >= 0'
@@ -295,7 +296,7 @@ def _engine(
         c["command"] = command
     if args is not None:
         c["args"] = args
-    c["env"] = env if env is not None else [_LEADER_ENV]
+    c["env"] = env if env is not None else [_LEADER_ENV, _RANK_ENV]
     if serving:
         c["ports"] = [{"containerPort": 8000}]
         c["readinessProbe"] = {
@@ -360,19 +361,20 @@ class TestBackendManifests(unittest.TestCase):
                 got = {key: obj.spec.forProvider.manifest for key, obj in out.items()}
                 self.assertEqual(case.want, got, "-want, +got")
 
-    def test_leader_address_injected_into_gang_engines(self) -> None:
+    def test_leader_address_and_rank_injected_into_gang_engines(self) -> None:
         # Every engine container in a multi-node gang gets
-        # MODELPLANE_LEADER_ADDRESS, aliasing LWS_LEADER_ADDRESS, ahead of the
-        # user's own env so commands can reference $(MODELPLANE_LEADER_ADDRESS).
+        # MODELPLANE_LEADER_ADDRESS and MODELPLANE_RANK, aliasing
+        # LWS_LEADER_ADDRESS and LWS_WORKER_INDEX, ahead of the user's own env
+        # so commands can reference $(MODELPLANE_*).
         engine = _gang_engine(leader_command=_LEADER_CMD, worker_command=_WORKER_CMD)
         replica = _replica(engines=[engine])
         out = llmd.LLMDBackend().build(replica, engine, _PC, base.serving_label(replica))
         tmpl = out["model-serving-main"].spec.forProvider.manifest["spec"]["leaderWorkerTemplate"]
         for role in ("leaderTemplate", "workerTemplate"):
             env = tmpl[role]["spec"]["containers"][0]["env"]
-            self.assertEqual(env[0], _LEADER_ENV)
+            self.assertEqual(env[:2], [_LEADER_ENV, _RANK_ENV])
 
-    def test_user_env_preserved_after_leader_address(self) -> None:
+    def test_user_env_preserved_after_injected_env(self) -> None:
         engine = _gang_engine(
             leader_command=_LEADER_CMD,
             worker_command=_WORKER_CMD,
@@ -384,12 +386,12 @@ class TestBackendManifests(unittest.TestCase):
         out = llmd.LLMDBackend().build(replica, engine, _PC, base.serving_label(replica))
         leader = out["model-serving-main"].spec.forProvider.manifest["spec"]["leaderWorkerTemplate"]["leaderTemplate"]
         env = leader["spec"]["containers"][0]["env"]
-        self.assertEqual(env, [_LEADER_ENV, {"name": "HF_TOKEN", "value": "x"}])
+        self.assertEqual(env, [_LEADER_ENV, _RANK_ENV, {"name": "HF_TOKEN", "value": "x"}])
 
     def test_fieldref_env_passes_through(self) -> None:
         # A pod-field env (e.g. VLLM_HOST_IP from status.podIP, which multi-NIC
         # RDMA nodes need so the engine binds the right interface — #141) survives
-        # model_dump into the composed manifest alongside the injected leader env.
+        # model_dump into the composed manifest alongside the injected env.
         engine = _gang_engine(leader_command=_LEADER_CMD, worker_command=_WORKER_CMD)
         spec = engine.members[0].template.spec
         assert spec is not None
@@ -405,7 +407,11 @@ class TestBackendManifests(unittest.TestCase):
         env = leader["spec"]["containers"][0]["env"]
         self.assertEqual(
             env,
-            [_LEADER_ENV, {"name": "VLLM_HOST_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}}],
+            [
+                _LEADER_ENV,
+                _RANK_ENV,
+                {"name": "VLLM_HOST_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}},
+            ],
         )
 
     @staticmethod

@@ -143,14 +143,18 @@ LABEL_SERVING = "modelplane.ai/serving"
 # Deployment selectors fighting over each other's pods.
 LABEL_WORKLOAD = "modelplane.ai/workload"
 
-# Backend-neutral env var carrying the gang leader's address, injected into
-# every engine container of a multi-node engine's gang. A member's command finds its
-# peers through this without hard-coding the underlying orchestrator's variable.
-# For the LWS backend it aliases LWS_LEADER_ADDRESS; another gang scheduler would
-# alias its own. $(VAR) is Kubernetes downward env expansion - the container
-# sees MODELPLANE_LEADER_ADDRESS resolved to the leader's address.
+# Backend-neutral env vars carrying the gang's coordination values, injected
+# into every engine container of a multi-node engine's gang: the leader's
+# address, and the pod's rank (0 for the leader, 1..worker.nodes for each
+# follower). A member's command finds its peers and its own place in the gang
+# through these without hard-coding the underlying orchestrator's variables.
+# For the LWS backend they alias LWS_LEADER_ADDRESS and LWS_WORKER_INDEX;
+# another gang scheduler would alias its own. $(VAR) is Kubernetes downward env
+# expansion - the container sees the MODELPLANE_ vars resolved to their values.
 LEADER_ADDRESS_ENV = "MODELPLANE_LEADER_ADDRESS"
+RANK_ENV = "MODELPLANE_RANK"
 _LWS_LEADER_ADDRESS_ENV = "LWS_LEADER_ADDRESS"
+_LWS_WORKER_INDEX_ENV = "LWS_WORKER_INDEX"
 
 
 def leader_address_env() -> dict:
@@ -164,6 +168,17 @@ def leader_address_env() -> dict:
     the $(LWS_LEADER_ADDRESS) reference here resolve.)
     """
     return {"name": LEADER_ADDRESS_ENV, "value": f"$({_LWS_LEADER_ADDRESS_ENV})"}
+
+
+def rank_env() -> dict:
+    """The MODELPLANE_RANK env entry for the LWS backend.
+
+    Aliases LWS_WORKER_INDEX, which LeaderWorkerSet injects into every gang pod
+    - 0 on the leader, 1..size-1 on the followers - so one alias serves both
+    the leader and the worker templates. The same ordering caveat as
+    leader_address_env applies.
+    """
+    return {"name": RANK_ENV, "value": f"$({_LWS_WORKER_INDEX_ENV})"}
 
 
 # Response resource keys. A replica's HTTPRoute keeps a stable key; each engine's
