@@ -83,7 +83,7 @@ class NodeSelector(BaseModel):
 
 class MetadataModel(BaseModel):
     annotations: dict[str, str] | None = None
-    labels: dict[str, str] | None = None
+    labels: dict[str, constr(max_length=63)] | None = Field(None, max_length=32)
 
 
 class ConfigMapKeyRef(BaseModel):
@@ -159,7 +159,7 @@ class Spec(BaseModel):
 class Template(BaseModel):
     metadata: MetadataModel | None = None
     """
-    Metadata applied to the member's pods. Useful for labels and annotations that control cluster-level features like service mesh injection.
+    Metadata applied to the member's pods. Useful for labels and annotations that control cluster-level features like service mesh injection. Label keys under the modelplane.ai/ prefix are reserved.
     """
     spec: Spec | None = None
     """
