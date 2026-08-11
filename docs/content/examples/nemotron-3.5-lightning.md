@@ -6,7 +6,7 @@ description: An open 30B MoE with 3B active parameters served NVFP4 on a single 
 <!-- vale write-good.Passive = NO -->
 NVIDIA's Nemotron-3.5-Lightning, an open 30B mixture-of-experts model with 3B
 active parameters built for the execution layer of long-running agents, served
-NVFP4 as a single `Standalone` vLLM engine on one H100 80GB node on Nebius.
+NVFP4 as a single `Standalone` vLLM engine on one H100 node on Nebius.
 The NVFP4 checkpoint (~20 GiB) fits a single GPU with headroom for the KV and
 Mamba caches, so the engine needs no tensor parallelism, no gang, and no
 prefill/decode disaggregation. Weights stage once to a `ModelCache` on a
