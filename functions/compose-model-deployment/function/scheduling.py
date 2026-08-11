@@ -1001,7 +1001,7 @@ def schedule(
     # _retain keeps the first replica seen for a colliding (cluster, index), and
     # _build_ledger charges replicas in iteration order. An unsorted input could
     # otherwise place two equal states differently across reconciles.
-    all_replicas = sorted(all_replicas, key=lambda r: r.metadata.name or "")
+    all_replicas = sorted(all_replicas, key=lambda r: _name(r.metadata))
 
     # Compile every member's nodeSelector selectors once and reuse them
     # across every pool of every cluster. Raises CELCompileError on a malformed

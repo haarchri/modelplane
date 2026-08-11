@@ -17,7 +17,7 @@
           pkgs.unstable.ruff
           pkgs.statix
           pkgs.deadnix
-          pkgs.nixfmt-rfc-style
+          pkgs.nixfmt
           pkgs.shellcheck
           pkgs.shfmt
           pkgs.gnupatch

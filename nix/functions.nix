@@ -140,7 +140,14 @@ let
         src:
         pkgs.fetchurl {
           inherit (src) name url;
-          hash = src.outputHash;
+          # The wheel derivation carries its hash as bare hex with the
+          # algorithm in a separate attribute, but fetchurl's hash argument
+          # only accepts typed (SRI) hashes.
+          hash = builtins.convertHash {
+            hash = src.outputHash;
+            hashAlgo = src.outputHashAlgo;
+            toHashFormat = "sri";
+          };
         };
       wheels = map (p: hostWheel p.src) (builtins.filter isWheel resolved);
       sources = map (p: p.src) (builtins.filter (p: !isWheel p) resolved);

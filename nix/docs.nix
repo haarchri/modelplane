@@ -110,16 +110,16 @@ let
         ];
         outputHashMode = "recursive";
         outputHashAlgo = "sha256";
-        outputHash = "sha256-sWwK8Z5NEpxSbajGd+IjEh+2moQOU2pBUI33c6+gKVY=";
+        outputHash = "sha256-WbPAE0+fnV7gqU7P4c9qKWETRHTR7uP5OpsHCj+l9r4=";
       }
       ''
         export HOME=$TMPDIR
-        # .vale.ini's relative "StylesPath = styles" resolves next to the config
-        # file, so copy it here for vale to sync into $PWD/styles.
         cp ${self}/docs/utils/vale/.vale.ini .vale.ini
+        # Since Vale 3.12, sync installs packages into the XDG data
+        # directory rather than the config's StylesPath.
         vale sync --config="$PWD/.vale.ini"
         mkdir -p $out
-        cp -r styles/* $out/
+        cp -r "$HOME/.local/share/vale/styles/"* $out/
       '';
 in
 {

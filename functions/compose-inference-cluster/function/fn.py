@@ -520,7 +520,7 @@ class Composer:
                 name=resource.child_name(_name(self.xr.metadata), "cluster-kubeconfig"),
             ),
             namespace=_NAMESPACE_SYSTEM,
-            gpuPools=gpu_pools,  # ty: ignore[invalid-argument-type]  # gpu_pools builds the by-alias wire form; pydantic coerces it to GpuPool
+            gpuPools=gpu_pools,  # gpu_pools builds the by-alias wire form; pydantic coerces it to GpuPool
         )
         cache_storage_class = self.observed_cache_storage_class()
         if cache_storage_class:
@@ -884,7 +884,9 @@ class Composer:
         if nebius_ready and nebius_secrets:
             secrets = []
             for s in nebius_secrets:
-                secret = ssv1alpha1.Secret(type=s.type, name=s.name, key=s.key)  # ty: ignore[invalid-argument-type]  # values come from the XRD secret-type enums
+                secret = ssv1alpha1.Secret(
+                    type=s.type, name=s.name, key=s.key
+                )  # values come from the XRD secret-type enums
                 # Only set namespace when the entry carries one, so entries in
                 # the backend's own namespace stay namespace-free.
                 if s.namespace:
