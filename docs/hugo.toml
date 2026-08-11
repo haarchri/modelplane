@@ -94,6 +94,12 @@ ignoreFiles = ["themes/geekboot/content/.*", "README.md"]
 [security]
   [security.funcs]
     getenv = ["^CONTEXT", "^REVIEW_ID", "^VERCEL_ENV"]
+  [security.node.permissions]
+    # Hugo runs Node tools under Node's permission model, which blocks
+    # native addons unless the tool is listed here. The PostCSS pipeline
+    # needs it: LightningCSS is a native addon. "tailwindcss" is Hugo's
+    # default; keep it when overriding the list.
+    allowAddons = ["postcss", "tailwindcss"]
 
 [params]
   docs = true
