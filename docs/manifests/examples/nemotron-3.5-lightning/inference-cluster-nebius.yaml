@@ -1,0 +1,32 @@
+# An InferenceCluster backed by a Nebius mk8s cluster with a single 1x
+# H100 GPU node group. Modelplane provisions the full mk8s cluster (VPC,
+# control plane, system + GPU node groups) and installs the inference
+# stack. ModelCache RWX storage is auto-provisioned via a Nebius shared
+# filesystem, so model-cache.yaml works unchanged.
+#
+# Auth is the Nebius ClusterProviderConfig named default (service-account
+# key + projectID); Modelplane reuses that identity to reach the cluster.
+#
+# eu-north1 (Finland) keeps inference in the EU for data residency.
+#
+# Clean teardown - delete the ML resources first (they hold a usage on the
+# cluster), then the cluster:
+#   kubectl delete modeldeployment,modelservice,modelcache nemotron-lightning -n ml-team
+#   kubectl delete inferencecluster nebius-eu-north --cascade=foreground
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceCluster
+metadata:
+  name: nebius-eu-north
+  labels:
+    modelplane.ai/region: eu-north
+spec:
+  cluster:
+    source: Nebius
+    nebius: {}
+
+  nodePools:
+  - name: gpu-h100
+    className: nebius-h100-1x
+    nodeCount: 1
+    minNodeCount: 1
+    maxNodeCount: 1

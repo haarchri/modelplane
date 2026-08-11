@@ -1,0 +1,18 @@
+# The model weights, staged once per cluster on a Nebius shared filesystem
+# (RWX) and mounted at /mnt/models in the serving pod, so the engine reads
+# the NVFP4 weights (~20 GiB) locally instead of pulling them from Hugging
+# Face on every start.
+#
+# nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 is a public repo, so no
+# authSecret / HF token is needed. Add one only if you point this at a gated
+# repo.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelCache
+metadata:
+  name: nemotron-lightning
+  namespace: ml-team
+spec:
+  source: HuggingFace
+  huggingFace:
+    repo: nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+    sizeGiB: 50

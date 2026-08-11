@@ -1,0 +1,64 @@
+# Nemotron-3.5-Lightning (30B total / 3B active MoE, hybrid
+# Mamba-Transformer) served NVFP4 as a single Standalone vLLM engine on one
+# H100 80GB, weights streamed from the shared ModelCache at /mnt/models. The
+# NVFP4 checkpoint (~20 GiB) fits a single GPU with headroom for the KV and
+# Mamba caches, so no tensor parallelism, no gang, and no prefill/decode
+# disaggregation are needed.
+#
+# Notes on the engine flags:
+#   Quantization needs no flag - the checkpoint auto-detects as
+#     modelopt_mixed.
+#   --moe-backend=humming and --linear-backend=humming are the cookbook's
+#     base-configuration kernels.
+#   The --mamba-* flags configure the hybrid model's state-space cache: the
+#     flashinfer backend with an FP16 SSM cache, stochastic rounding, and
+#     the cookbook's align mode and horizontal SSU algorithm.
+#   --reasoning-parser=nemotron_v3 extracts the thinking block;
+#     --tool-call-parser=qwen3_coder is the parser Nemotron ships with, and
+#     --enable-auto-tool-choice turns on server-side tool selection.
+apiVersion: modelplane.ai/v1alpha1
+kind: ModelDeployment
+metadata:
+  name: nemotron-lightning
+  namespace: ml-team
+spec:
+  replicas: 1
+  template:
+    spec:
+      modelCacheRef:
+        name: nemotron-lightning
+      engines:
+      - name: nemotron-lightning
+        members:
+        - role: Standalone
+          nodeSelector:
+            devices:
+            - name: gpu
+              count: 1
+              selectors:
+              - cel: |
+                  device.driver == "gpu.nvidia.com" && device.capacity["gpu.nvidia.com"].memory.compareTo(quantity("79Gi")) >= 0
+          template:
+            spec:
+              containers:
+              - name: engine
+                image: vllm/vllm-openai:v0.27.1
+                command: ["vllm", "serve", "/mnt/models"]
+                args:
+                - --served-model-name=nemotron-3.5-lightning
+                - --moe-backend=humming
+                - --linear-backend=humming
+                - --max-num-seqs=256
+                - --max-model-len=65536
+                - --max-num-batched-tokens=32768
+                - --enable-prefix-caching
+                - --async-scheduling
+                - --mamba-backend=flashinfer
+                - --mamba-ssm-cache-dtype=float16
+                - --enable-mamba-cache-stochastic-rounding
+                - --mamba-cache-philox-rounds=5
+                - --mamba-cache-mode=align
+                - --mamba-ssu-algorithm=horizontal
+                - --reasoning-parser=nemotron_v3
+                - --enable-auto-tool-choice
+                - --tool-call-parser=qwen3_coder
