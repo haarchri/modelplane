@@ -28,7 +28,7 @@ let
 
     npmDeps = pkgs.fetchNpmDeps {
       src = ./../docs;
-      hash = "sha256-PYp2L/eawcJdhdb0XyJkgopVnXpFmiMGpc4hVsAUvRo=";
+      hash = "sha256-kiwL9KU3l65W38B3OZh4JxxJPhPgp940zaIiTvXLAlk=";
     };
 
     dontBuild = true;
