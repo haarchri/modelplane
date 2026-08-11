@@ -5,7 +5,7 @@
   description = "Modelplane - The open source control plane for AI models";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
     # Unstable nixpkgs, exposed as pkgs.unstable. Used when we need a
     # newer version of a package than the stable channel ships, e.g. uv
@@ -72,7 +72,6 @@
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
 
@@ -199,7 +198,7 @@
               pkgs.python3
               pkgs.unstable.ruff
               pkgs.unstable.ty
-              pkgs.nixfmt-rfc-style
+              pkgs.nixfmt
               pkgs.hugo
               pkgs.nodejs
             ];
