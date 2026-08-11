@@ -134,17 +134,24 @@ class LLMDBackend:
 
         # Only the leader serves the OpenAI API → it carries the serving label
         # the replica's shared Service selects on, plus the role label, the
-        # serving port, and the readiness probe.
+        # serving port, and the readiness probe. The leader member's own
+        # template.metadata merges in underneath them.
         leader_pod = {
-            "metadata": {"labels": {base.LABEL_SERVING: serving_label, _LABEL_ROLE: "leader"}},
+            "metadata": base.pod_metadata(leader, {base.LABEL_SERVING: serving_label, _LABEL_ROLE: "leader"}),
             "spec": pod_spec(leader, container(leader, serving=True)),
         }
         # The worker followers don't serve the OpenAI API, so they carry no
-        # serving label - the replica's Service must never route to them. LWS
-        # manages their gang membership labels itself.
+        # serving label - the replica's Service must never route to them (the
+        # XRDs reject user labels in the reserved modelplane.ai/ namespace, so
+        # one can't arrive via template.metadata). LWS manages their gang
+        # membership labels itself. Only the worker member's own
+        # template.metadata applies, so it's omitted entirely when empty.
         worker_pod = {
             "spec": pod_spec(worker, container(worker, serving=False)),
         }
+        worker_metadata = base.pod_metadata(worker)
+        if worker_metadata:
+            worker_pod["metadata"] = worker_metadata
 
         # LeaderWorkerSet: spec.replicas gangs, each of `size` pods (leader+workers).
         leader_worker_set = {

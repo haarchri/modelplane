@@ -250,11 +250,26 @@ spec:
                             properties:
                               metadata:
                                 type: object
+                                # Mirrors the ModelDeployment member metadata
+                                # rules. Replicas are composed from an
+                                # already-validated deployment, so this is a
+                                # backstop for directly authored ModelReplicas;
+                                # keeping the schemas identical preserves the
+                                # round-trip contract noted on worker above.
+                                x-kubernetes-validations:
+                                - rule: "!has(self.labels) || self.labels.all(k, !k.startsWith('modelplane.ai/'))"
+                                  message: "member template.metadata.labels keys must not use the reserved modelplane.ai/ prefix"
+                                - rule: "!has(self.labels) || self.labels.all(k, k.matches('^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$'))"
+                                  message: "member template.metadata.labels keys must be valid Kubernetes label keys"
+                                - rule: "!has(self.labels) || self.labels.all(k, self.labels[k].matches('^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$'))"
+                                  message: "member template.metadata.labels values must be valid Kubernetes label values"
                                 properties:
                                   labels:
                                     type: object
+                                    maxProperties: 32
                                     additionalProperties:
                                       type: string
+                                      maxLength: 63
                                   annotations:
                                     type: object
                                     additionalProperties:

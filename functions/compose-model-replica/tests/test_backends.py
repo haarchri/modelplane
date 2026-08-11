@@ -414,6 +414,54 @@ class TestBackendManifests(unittest.TestCase):
             ],
         )
 
+    def test_member_metadata_propagates_to_native_pod_template(self) -> None:
+        # A Standalone member's template.metadata labels and annotations land
+        # on the Deployment's pod template, merged with the managed labels
+        # (#378).
+        engine = _standalone_engine()
+        engine.members[0].template.metadata = v1alpha1.Metadata(
+            labels={"example.com/role": "standalone"},
+            annotations={"example.com/config": "standalone"},
+        )
+        replica = _replica(engines=[engine])
+        out = native.NativeBackend().build(replica, engine, _PC, base.serving_label(replica))
+        meta = out["model-serving-main"].spec.forProvider.manifest["spec"]["template"]["metadata"]
+        self.assertEqual(
+            meta["labels"],
+            {"example.com/role": "standalone", _SERVING: "r", _WORKLOAD: _WORKLOAD_NAME},
+        )
+        self.assertEqual(meta["annotations"], {"example.com/config": "standalone"})
+
+    def test_member_metadata_propagates_to_lws_templates_independently(self) -> None:
+        # Leader metadata lands on the leader template and worker metadata on
+        # the worker template; neither leaks into the other (#378).
+        engine = _gang_engine(leader_command=_LEADER_CMD, worker_command=_WORKER_CMD)
+        engine.members[0].template.metadata = v1alpha1.Metadata(
+            labels={"example.com/role": "leader"}, annotations={"example.com/config": "leader"}
+        )
+        engine.members[1].template.metadata = v1alpha1.Metadata(
+            labels={"example.com/role": "worker"}, annotations={"example.com/config": "worker"}
+        )
+        replica = _replica(engines=[engine])
+        out = llmd.LLMDBackend().build(replica, engine, _PC, base.serving_label(replica))
+        tmpl = out["model-serving-main"].spec.forProvider.manifest["spec"]["leaderWorkerTemplate"]
+        leader_meta = tmpl["leaderTemplate"]["metadata"]
+        self.assertEqual(leader_meta["labels"], {"example.com/role": "leader", _SERVING: "r", _ROLE: "leader"})
+        self.assertEqual(leader_meta["annotations"], {"example.com/config": "leader"})
+        worker_meta = tmpl["workerTemplate"]["metadata"]
+        self.assertEqual(worker_meta["labels"], {"example.com/role": "worker"})
+        self.assertEqual(worker_meta["annotations"], {"example.com/config": "worker"})
+
+    def test_worker_without_metadata_composes_none(self) -> None:
+        # A worker member with no template.metadata composes a worker template
+        # with no metadata key at all - the followers carry no labels of ours,
+        # and LWS manages their gang membership labels itself (#378).
+        engine = _gang_engine(leader_command=_LEADER_CMD, worker_command=_WORKER_CMD)
+        replica = _replica(engines=[engine])
+        out = llmd.LLMDBackend().build(replica, engine, _PC, base.serving_label(replica))
+        tmpl = out["model-serving-main"].spec.forProvider.manifest["spec"]["leaderWorkerTemplate"]
+        self.assertNotIn("metadata", tmpl["workerTemplate"])
+
     @staticmethod
     def _names(out: dict[str, k8sobjv1alpha1.Object]) -> set[str]:
         return {o.spec.forProvider.manifest["metadata"]["name"] for o in out.values()}

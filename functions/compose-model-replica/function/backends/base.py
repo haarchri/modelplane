@@ -143,6 +143,29 @@ LABEL_SERVING = "modelplane.ai/serving"
 # Deployment selectors fighting over each other's pods.
 LABEL_WORKLOAD = "modelplane.ai/workload"
 
+
+def pod_metadata(member: v1alpha1.Member, labels: dict[str, str] | None = None) -> dict:
+    """Pod template metadata for a member: its template.metadata plus managed labels.
+
+    The member's template.metadata.labels and .annotations propagate to the pod
+    template a backend composes, merged with the managed labels the backend
+    passes. The XRDs reject member labels in the reserved modelplane.ai/
+    namespace at admission, so a user label can never collide with the managed
+    ones (or stamp the serving label onto an LWS worker, routing traffic to a
+    pod that doesn't serve the OpenAI API). Returns {} when there is nothing to
+    set, so a caller can omit metadata entirely.
+    """
+    user = member.template.metadata
+    merged = dict((user.labels if user else None) or {})
+    merged.update(labels or {})
+    meta: dict = {}
+    if merged:
+        meta["labels"] = merged
+    if user and user.annotations:
+        meta["annotations"] = dict(user.annotations)
+    return meta
+
+
 # Backend-neutral env vars carrying the gang's coordination values, injected
 # into every engine container of a multi-node engine's gang: the leader's
 # address, and the pod's rank (0 for the leader, 1..worker.nodes for each

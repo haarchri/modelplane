@@ -399,12 +399,30 @@ spec:
                                           Metadata applied to the member's pods. Useful
                                           for labels and annotations that control
                                           cluster-level features like service mesh
-                                          injection.
+                                          injection. Label keys under the modelplane.ai/
+                                          prefix are reserved.
+                                        # Mirrors the template.metadata label rules
+                                        # above: reject reserved and malformed labels
+                                        # at admission rather than composing a pod
+                                        # template the workload cluster rejects (or,
+                                        # for the reserved prefix, silently dropping
+                                        # the label - the modelplane.ai/ labels drive
+                                        # the serving Service and workload selectors,
+                                        # so a user value can't be honored).
+                                        x-kubernetes-validations:
+                                        - rule: "!has(self.labels) || self.labels.all(k, !k.startsWith('modelplane.ai/'))"
+                                          message: "member template.metadata.labels keys must not use the reserved modelplane.ai/ prefix"
+                                        - rule: "!has(self.labels) || self.labels.all(k, k.matches('^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$'))"
+                                          message: "member template.metadata.labels keys must be valid Kubernetes label keys"
+                                        - rule: "!has(self.labels) || self.labels.all(k, self.labels[k].matches('^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$'))"
+                                          message: "member template.metadata.labels values must be valid Kubernetes label values"
                                         properties:
                                           labels:
                                             type: object
+                                            maxProperties: 32
                                             additionalProperties:
                                               type: string
+                                              maxLength: 63
                                           annotations:
                                             type: object
                                             additionalProperties:

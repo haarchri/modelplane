@@ -43,11 +43,12 @@ class NativeBackend:
         assert member is not None
         engine_container = base.engine_container(member)
         name = base.engine_name(replica, engine)
-        # The pod carries two labels: the shared serving label the replica's one
-        # Service selects on (the Standalone pod serves the OpenAI API), and a
-        # per-workload label this Deployment selects on. The latter must be
-        # engine-unique so two Standalone engines of one replica don't share a
-        # selector and fight over each other's pods.
+        # The pod carries two managed labels: the shared serving label the
+        # replica's one Service selects on (the Standalone pod serves the
+        # OpenAI API), and a per-workload label this Deployment selects on. The
+        # latter must be engine-unique so two Standalone engines of one replica
+        # don't share a selector and fight over each other's pods. The member's
+        # own template.metadata merges in underneath them.
         pod_labels = {base.LABEL_SERVING: serving_label, base.LABEL_WORKLOAD: name}
         selector = {base.LABEL_WORKLOAD: name}
 
@@ -103,7 +104,7 @@ class NativeBackend:
             "spec": {
                 "replicas": int(engine.copies or 1),
                 "selector": {"matchLabels": selector},
-                "template": {"metadata": {"labels": pod_labels}, "spec": pod_spec},
+                "template": {"metadata": base.pod_metadata(member, pod_labels), "spec": pod_spec},
             },
         }
 
