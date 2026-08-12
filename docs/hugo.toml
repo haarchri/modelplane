@@ -102,7 +102,7 @@ ignoreFiles = ["themes/geekboot/content/.*", "README.md"]
   version = "0.1"
   # Latest stable release. Drives the version dropdown and the "not the latest
   # release" banners; the apex (docs.modelplane.ai) is this release's own build.
-  latest = "0.2"
+  latest = "0.3"
   [params.anchors]
     min = 2
     max = 5
