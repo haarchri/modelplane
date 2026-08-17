@@ -1,7 +1,20 @@
 ---
 title: Qwen2.5-72B
-weight: 35
+weight: 37
 description: A 72B dense chat model (AWQ INT4) on a single 80 GB GPU, on AKS and Nebius.
+model: Qwen/Qwen2.5-72B-Instruct-AWQ
+vendors: [Qwen]
+clouds: [AKS, Nebius]
+accelerators: [A100, H100]
+engines: [vLLM]
+arch: Dense
+precision: AWQ INT4
+size: 72B
+ctx: "8,192"
+servingModes: [Standalone]
+engineImages: [vllm/vllm-openai:v0.23.0]
+variants: ["AWQ INT4 · AKS", "AWQ INT4 · Nebius"]
+gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->
 A 72B dense chat model served from an AWQ INT4 quantization on a single 80 GB
@@ -15,6 +28,10 @@ them. To serve on just one platform, apply one tab and drop `replicas` to 1.
 
 These manifests mirror the repository's AKS and Nebius demos. Apply the
 platform side first, then the ML side.
+
+## Validated deployments
+
+{{< validated-deployments >}}
 
 ## Platform
 
@@ -53,7 +70,7 @@ behind the same URL:
 
 Both GPUs now serve the same workload, so their engine metrics give a direct
 performance comparison: scrape each replica's latency and throughput as in
-[Collecting engine metrics]({{< ref "collecting-engine-metrics.md" >}}) and
+[Collecting engine metrics]({{< ref "/guides/collecting-engine-metrics.md" >}}) and
 read the two side by side. Weights are relative, so once one platform wins,
 shift the 50/50 toward it - 80/20, and as far as 100/0 - without touching the
 deployment.

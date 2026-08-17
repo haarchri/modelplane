@@ -2,6 +2,19 @@
 title: Llama-3.1-8B
 weight: 40
 description: An 8B dense chat model on a single NVIDIA L4.
+model: NousResearch/Meta-Llama-3.1-8B-Instruct
+vendors: [Meta]
+clouds: [EKS, GKE]
+accelerators: [L4]
+engines: [vLLM]
+arch: Dense
+precision: BF16
+size: 8B
+ctx: "8,192"
+servingModes: [Standalone]
+engineImages: [vllm/vllm-openai:v0.7.3]
+variants: ["BF16 · EKS", "BF16 · GKE"]
+gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->
 An 8B dense chat model on a single NVIDIA L4. The entry recipe: one `Standalone`
@@ -14,6 +27,10 @@ and `ModelDeployment` are the exact manifests from that run. The EKS platform
 shape is the standard single-L4 recipe. It passes server validation but was not
 served in this run. Apply the platform side first, then the ML side. The GKE
 `InferenceCluster` carries a GCP project placeholder to edit before applying.
+
+## Validated deployments
+
+{{< validated-deployments >}}
 
 ## Platform
 

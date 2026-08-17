@@ -1,6 +1,6 @@
 ---
 title: Collecting engine metrics
-weight: 50
+weight: 20
 description: Scrape a vLLM engine's Prometheus metrics through the in-cluster Prometheus.
 ---
 <!-- vale write-good.Passive = NO -->

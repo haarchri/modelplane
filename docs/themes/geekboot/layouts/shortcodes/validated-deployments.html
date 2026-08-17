@@ -1,0 +1,74 @@
+{{/*
+  The "Validated deployments" spec panel on a recipe page. Renders the model
+  tag chips, then one row per dimension (cloud, GPU, serving mode, variant,
+  engine, manifests). Each row shows the full canonical set from
+  data/recipes.yaml with the recipe's own values highlighted, so a reader sees
+  both what was validated and what the platform supports. All values come from
+  the page front matter; nothing here is hand-maintained per page.
+*/}}
+{{ $p := .Page }}
+{{ $d := hugo.Data.recipes }}
+{{ $clouds := $p.Params.clouds | default slice }}
+{{ $gpus := $p.Params.accelerators | default slice }}
+{{ $modes := $p.Params.servingmodes | default slice }}
+{{ $engines := $p.Params.engines | default slice }}
+<div class="mp-recipe-tags">
+  {{ with $p.Params.arch }}<span class="mp-vchip is-on">{{ . }}</span>{{ end }}
+  {{ with $p.Params.size }}<span class="mp-vchip is-on">{{ . }}</span>{{ end }}
+  {{ with $p.Params.ctx }}<span class="mp-vchip is-on">{{ . }} ctx</span>{{ end }}
+  {{ range $engines }}<span class="mp-vchip is-on">{{ . }}</span>{{ end }}
+</div>
+<div class="mp-spec">
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Cloud</div>
+    <div class="mp-spec-val">
+      {{ range $d.clouds }}
+        <span class="mp-vchip{{ if in $clouds .term }} is-on{{ end }}">{{ partial "brand-tile" (dict "entry" . "class" "mp-brand-tile--xs") }}{{ .name }}</span>
+      {{ end }}
+    </div>
+  </div>
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">GPU</div>
+    <div class="mp-spec-val">
+      {{ range $d.gpus }}
+        <span class="mp-vchip{{ if in $gpus .name }} is-on{{ end }}"><strong>{{ .name }}</strong>&nbsp;{{ .mem }}</span>
+      {{ end }}
+      {{ with $p.Params.gpunote }}<span class="mp-spec-note">{{ . }}</span>{{ end }}
+    </div>
+  </div>
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Serving mode</div>
+    <div class="mp-spec-val">
+      {{ range $d.servingModes }}
+        <span class="mp-vchip{{ if in $modes . }} is-on{{ end }}">{{ . }}</span>
+      {{ end }}
+    </div>
+  </div>
+  {{ with $p.Params.variants }}
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Variant</div>
+    <div class="mp-spec-val">
+      {{ range . }}<span class="mp-vchip is-on">{{ . }}</span>{{ end }}
+      {{ with $p.Params.ctx }}<span class="mp-spec-note">{{ . }} ctx</span>{{ end }}
+    </div>
+  </div>
+  {{ end }}
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Engine</div>
+    <div class="mp-spec-val">
+      {{ range $d.engines }}
+        <span class="mp-vchip{{ if in $engines . }} is-on{{ end }}">{{ . }}</span>
+      {{ end }}
+      {{ range $p.Params.engineimages }}<span class="mp-vchip mp-vchip--code is-on">{{ . }}</span>{{ end }}
+    </div>
+  </div>
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Manifests</div>
+    <div class="mp-spec-val">
+      {{ $branch := .Site.Params.version }}
+      {{ if ne $branch "main" }}{{ $branch = printf "v%s" $branch }}{{ end }}
+      {{ $dir := $p.File.BaseFileName }}
+      <a class="mp-vchip mp-vchip--code is-on" href="https://github.com/modelplaneai/modelplane/tree/{{ $branch }}/docs/manifests/examples/{{ $dir }}">docs/manifests/examples/{{ $dir }}</a>
+    </div>
+  </div>
+</div>

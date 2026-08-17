@@ -1,6 +1,6 @@
 ---
 title: Qwen3-8B speculative decoding
-weight: 60
+weight: 30
 description: An 8.2B dense chat model on a single L4 with n-gram speculative decoding.
 ---
 <!-- vale write-good.Passive = NO -->
@@ -36,7 +36,7 @@ tokens by matching the prompt and so needs no draft model or second set of weigh
 ## Platform
 
 The platform side is the single-L4 shape shared with the
-[Qwen3-8B example](https://docs.modelplane.ai/examples/qwen3-8b/): one
+[Qwen3-8B recipe]({{< ref "/recipes/qwen3-8b.md" >}}): one
 `InferenceClass` and a single-node `InferenceCluster` for one NVIDIA L4. Follow its
 Platform section to create them, then apply the ML side below.
 

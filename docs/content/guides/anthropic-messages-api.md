@@ -1,6 +1,6 @@
 ---
 title: Anthropic Messages API
-weight: 70
+weight: 10
 description: Serve a model on the Anthropic Messages API and drive it from Claude Code.
 ---
 <!-- vale write-good.Passive = NO -->

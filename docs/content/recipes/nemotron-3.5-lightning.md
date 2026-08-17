@@ -2,6 +2,19 @@
 title: Nemotron-3.5-Lightning
 weight: 15
 description: An open 30B MoE with 3B active parameters served NVFP4 on a single H100 on Nebius.
+model: nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+vendors: [NVIDIA]
+clouds: [Nebius]
+accelerators: [H100]
+engines: [vLLM]
+arch: MoE
+precision: NVFP4
+size: 30B A3B
+ctx: "65,536"
+servingModes: [Standalone]
+engineImages: [vllm/vllm-openai:v0.27.1]
+variants: ["NVFP4 · Nebius"]
+gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->
 NVIDIA's Nemotron-3.5-Lightning, an open 30B mixture-of-experts model with 3B
@@ -17,6 +30,10 @@ calling validated on a single H100 node.
 `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4` is a public repository
 (OpenMDW-1.1), so no Hugging Face token or Secret is needed. Apply the
 platform side first, then the ML side.
+
+## Validated deployments
+
+{{< validated-deployments >}}
 
 ## Platform
 

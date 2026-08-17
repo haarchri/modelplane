@@ -2,6 +2,19 @@
 title: Kimi-K2
 weight: 30
 description: A 1T MoE served prefill/decode disaggregated across two H200 nodes.
+model: RedHatAI/Kimi-K2-Instruct-quantized.w4a16
+vendors: [Moonshot AI]
+clouds: [EKS]
+accelerators: [H200]
+engines: [vLLM]
+arch: MoE
+precision: INT4
+size: 1T A32B
+ctx: "131,072"
+servingModes: [PrefillDecode]
+engineImages: [vllm/vllm-openai:v0.23.0]
+variants: ["INT4 · EKS"]
+gpuNote: 8× per node
 ---
 <!-- vale write-good.Passive = NO -->
 A 1T MoE (1 trillion parameters) served prefill/decode disaggregated across two
@@ -13,6 +26,10 @@ This recipe was run end to end; the `InferenceClass` and `ModelDeployment` are
 the exact manifests from that run. Apply the platform side first, then the ML
 side. The `InferenceCluster` carries an EC2 capacity reservation placeholder to
 edit before applying.
+
+## Validated deployments
+
+{{< validated-deployments >}}
 
 ## Platform
 
