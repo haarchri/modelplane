@@ -7,6 +7,6 @@ wide: true
 paginationHidden: true
 ---
 Every validated recipe in one table: model, size, architecture, precision, and
-the hardware it was verified on. Click a row for the full recipe.
+the verified hardware. Select a row for the full recipe.
 
 {{< recipe-table >}}
