@@ -15,7 +15,8 @@
 {{ $rec := .Site.GetPage "/recipes" }}
 {{ $guides := .Site.GetPage "/guides" }}
 {{ $ref := .Site.GetPage "/reference" }}
-{{ $isRecipes := and $rec (or (eq $current.Section "recipes") (eq $current.Section "guides")) }}
+{{ $isRecipes := and $rec (eq $current.Section "recipes") }}
+{{ $isGuides := and $guides (eq $current.Section "guides") }}
 {{ $isRef := and $ref (eq $current.Section "reference") }}
 {{ $ordered := slice }}
 {{ if $isRef }}
@@ -31,6 +32,7 @@
       {{ if not .Params.tocHidden }}{{ $ordered = $ordered | append . }}{{ end }}
     {{ end }}
   {{ end }}
+{{ else if $isGuides }}
   {{ with $guides }}
     {{ range .Pages.ByWeight }}
       {{ if not .Params.tocHidden }}{{ $ordered = $ordered | append . }}{{ end }}

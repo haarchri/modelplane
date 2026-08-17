@@ -4,10 +4,10 @@
 {{ $guides := .Site.GetPage "/guides" }}
 {{ $ref := .Site.GetPage "/reference" }}
 {{ $isRef := and $ref (eq $current.Section "reference") }}
-{{/* The Recipes tab also hosts the guides section and the taxonomy term pages
-     (facet listings) — a term page's .Section is the taxonomy plural, not
-     "recipes". */}}
-{{ $isRecipes := and $rec (or (eq $current.Section "recipes") (eq $current.Section "guides") (eq $current.Kind "term")) }}
+{{/* The Recipes tab also hosts the taxonomy term pages (facet listings) — a
+     term page's .Section is the taxonomy plural, not "recipes". */}}
+{{ $isRecipes := and $rec (or (eq $current.Section "recipes") (eq $current.Kind "term")) }}
+{{ $isGuides := and $guides (eq $current.Section "guides") }}
 
 {{/* Home + top-level regular pages + sections, ordered by weight. The home page
      itself is excluded from the list (the sidebar brand links to it). */}}
@@ -79,6 +79,8 @@
         {{ end }}
       </div>
     {{ end }}
+  {{ else if $isGuides }}
+    {{/* ── Guides tab: the how-to guides, one flat group ── */}}
     {{ with $guides }}
       <div class="nav-group">
         <div class="nav-group-label">{{ .Params.navLabel | default .Title }}</div>

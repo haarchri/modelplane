@@ -8,6 +8,7 @@
 {{ define "main" }}
 {{ $ref := .Site.GetPage "/reference" }}
 {{ $rec := .Site.GetPage "/recipes" }}
+{{ $guides := .Site.GetPage "/guides" }}
 <div class="bd-layout docs-container">
   <aside class="bd-sidebar">
     <div class="offcanvas-lg offcanvas-start bd-sidebar-container" tabindex="-1" id="bdSidebar" aria-labelledby="bdSidebarLabel">
@@ -22,12 +23,13 @@
       {{ if $ref }}
         <div class="doc-switch dropdown d-lg-none">
           <button class="doc-switch-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Switch documentation section">
-            <span>Examples</span>
+            <span>Recipes</span>
             <svg class="doc-switch-caret" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/></svg>
           </button>
           <ul class="dropdown-menu doc-switch-menu">
             <li><a class="dropdown-item" href="{{ .Site.Home.Permalink }}">Documentation</a></li>
-            {{ with $rec }}<li><a class="dropdown-item active" href="{{ .Permalink }}">Examples</a></li>{{ end }}
+            {{ with $rec }}<li><a class="dropdown-item active" href="{{ .Permalink }}">Recipes</a></li>{{ end }}
+            {{ with $guides }}<li><a class="dropdown-item" href="{{ .Permalink }}">Guides</a></li>{{ end }}
             <li><a class="dropdown-item" href="{{ $ref.Permalink }}">Reference</a></li>
           </ul>
         </div>
@@ -45,7 +47,8 @@
       {{ if $ref }}
       <nav class="doc-tabs" aria-label="Documentation sections">
         <a class="doc-tab" href="{{ .Site.Home.Permalink }}">Documentation</a>
-        {{ with $rec }}<a class="doc-tab active" href="{{ .Permalink }}">Examples</a>{{ end }}
+        {{ with $rec }}<a class="doc-tab active" href="{{ .Permalink }}">Recipes</a>{{ end }}
+        {{ with $guides }}<a class="doc-tab" href="{{ .Permalink }}">Guides</a>{{ end }}
         <a class="doc-tab" href="{{ $ref.Permalink }}">Reference</a>
       </nav>
       {{ end }}
