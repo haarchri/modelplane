@@ -34,13 +34,13 @@ region before applying. Apply the platform side first, then the ML side.
 
 ## Platform
 
-{{< manifests "examples/qwen2.5-7b/inference-class.yaml" >}}
+{{< manifests "recipes/qwen2.5-7b/inference-class.yaml" >}}
 
-{{< manifests "examples/qwen2.5-7b/inference-cluster.yaml" >}}
+{{< manifests "recipes/qwen2.5-7b/inference-cluster.yaml" >}}
 
 ## Deployment
 
-{{< manifests "examples/qwen2.5-7b/model-deployment.yaml" >}}
+{{< manifests "recipes/qwen2.5-7b/model-deployment.yaml" >}}
 
-{{< manifests "examples/qwen2.5-7b/model-service.yaml" >}}
+{{< manifests "recipes/qwen2.5-7b/model-service.yaml" >}}
 <!-- vale write-good.Passive = YES -->

@@ -33,17 +33,17 @@ side first, then the ML side.
 
 ## Platform
 
-{{< manifests "examples/laguna/inference-class-nebius.yaml" >}}
+{{< manifests "recipes/laguna/inference-class-nebius.yaml" >}}
 
-{{< manifests "examples/laguna/inference-cluster-nebius.yaml" >}}
+{{< manifests "recipes/laguna/inference-cluster-nebius.yaml" >}}
 
 ## Deployment
 
-{{< manifests "examples/laguna/model-cache.yaml" >}}
+{{< manifests "recipes/laguna/model-cache.yaml" >}}
 
-{{< manifests "examples/laguna/model-deployment.yaml" >}}
+{{< manifests "recipes/laguna/model-deployment.yaml" >}}
 
-{{< manifests "examples/laguna/model-service.yaml" >}}
+{{< manifests "recipes/laguna/model-service.yaml" >}}
 
 ## Serving with SGLang
 
@@ -51,5 +51,5 @@ side first, then the ML side.
 serves the same model with SGLang, which has native Laguna support and the
 `poolside_v1` parsers. Apply it instead of `model-deployment.yaml`.
 
-{{< manifests "examples/laguna/model-deployment-sglang.yaml" >}}
+{{< manifests "recipes/laguna/model-deployment-sglang.yaml" >}}
 <!-- vale write-good.Passive = YES -->

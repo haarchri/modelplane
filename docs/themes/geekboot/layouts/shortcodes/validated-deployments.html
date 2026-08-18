@@ -99,7 +99,7 @@
       {{ $branch := .Site.Params.version }}
       {{ if ne $branch "main" }}{{ $branch = printf "v%s" $branch }}{{ end }}
       {{ $dir := $p.File.BaseFileName }}
-      <a class="mp-vchip mp-vchip--code is-on" href="https://github.com/modelplaneai/modelplane/tree/{{ $branch }}/docs/manifests/examples/{{ $dir }}">docs/manifests/examples/{{ $dir }}</a>
+      <a class="mp-vchip mp-vchip--code is-on" href="https://github.com/modelplaneai/modelplane/tree/{{ $branch }}/docs/manifests/recipes/{{ $dir }}">docs/manifests/recipes/{{ $dir }}</a>
     </div>
   </div>
 </div>

@@ -33,15 +33,15 @@ side.
 
 ## Platform
 
-{{< manifests "examples/qwen3-8b/inference-class.yaml" >}}
+{{< manifests "recipes/qwen3-8b/inference-class.yaml" >}}
 
-{{< manifests "examples/qwen3-8b/inference-cluster.yaml" >}}
+{{< manifests "recipes/qwen3-8b/inference-cluster.yaml" >}}
 
 ## Deployment
 
-{{< manifests "examples/qwen3-8b/model-deployment.yaml" >}}
+{{< manifests "recipes/qwen3-8b/model-deployment.yaml" >}}
 
-{{< manifests "examples/qwen3-8b/model-service.yaml" >}}
+{{< manifests "recipes/qwen3-8b/model-service.yaml" >}}
 
 ## Speculative decoding
 
@@ -68,9 +68,9 @@ the `ModelDeployment` below is the exact manifest from that run, and the
 numbers above are from the same run. Apply it instead of (or alongside) the
 deployment above:
 
-{{< manifests "examples/qwen3-8b-speculative-decoding/model-deployment.yaml" >}}
+{{< manifests "recipes/qwen3-8b-speculative-decoding/model-deployment.yaml" >}}
 
-{{< manifests "examples/qwen3-8b-speculative-decoding/model-service.yaml" >}}
+{{< manifests "recipes/qwen3-8b-speculative-decoding/model-service.yaml" >}}
 
 Speculation is active when the engine logs its `SpeculativeConfig` at startup
 (`method='ngram'`). The call below pastes a code block and asks for a small edit,

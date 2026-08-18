@@ -36,15 +36,15 @@ platform side first, then the ML side.
 
 ## Platform
 
-{{< manifests "examples/nemotron-3.5-lightning/inference-class-nebius.yaml" >}}
+{{< manifests "recipes/nemotron-3.5-lightning/inference-class-nebius.yaml" >}}
 
-{{< manifests "examples/nemotron-3.5-lightning/inference-cluster-nebius.yaml" >}}
+{{< manifests "recipes/nemotron-3.5-lightning/inference-cluster-nebius.yaml" >}}
 
 ## Deployment
 
-{{< manifests "examples/nemotron-3.5-lightning/model-cache.yaml" >}}
+{{< manifests "recipes/nemotron-3.5-lightning/model-cache.yaml" >}}
 
-{{< manifests "examples/nemotron-3.5-lightning/model-deployment.yaml" >}}
+{{< manifests "recipes/nemotron-3.5-lightning/model-deployment.yaml" >}}
 
-{{< manifests "examples/nemotron-3.5-lightning/model-service.yaml" >}}
+{{< manifests "recipes/nemotron-3.5-lightning/model-service.yaml" >}}
 <!-- vale write-good.Passive = YES -->

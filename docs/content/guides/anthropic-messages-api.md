@@ -19,15 +19,15 @@ has ample headroom. Apply the platform side first, then the ML side.
 
 ## Platform
 
-{{< manifests "examples/anthropic-messages-api/inference-class.yaml" >}}
+{{< manifests "guides/anthropic-messages-api/inference-class.yaml" >}}
 
-{{< manifests "examples/anthropic-messages-api/inference-cluster.yaml" >}}
+{{< manifests "guides/anthropic-messages-api/inference-cluster.yaml" >}}
 
 ## Deployment
 
-{{< manifests "examples/anthropic-messages-api/model-deployment.yaml" >}}
+{{< manifests "guides/anthropic-messages-api/model-deployment.yaml" >}}
 
-{{< manifests "examples/anthropic-messages-api/model-service.yaml" >}}
+{{< manifests "guides/anthropic-messages-api/model-service.yaml" >}}
 
 ## Send a request
 

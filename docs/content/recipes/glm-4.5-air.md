@@ -35,13 +35,13 @@ platform side first, then the ML side.
 
 ## Platform
 
-{{< manifests "examples/glm-4.5-air/inference-class.yaml" >}}
+{{< manifests "recipes/glm-4.5-air/inference-class.yaml" >}}
 
-{{< manifests "examples/glm-4.5-air/inference-cluster.yaml" >}}
+{{< manifests "recipes/glm-4.5-air/inference-cluster.yaml" >}}
 
 ## Deployment
 
-{{< manifests "examples/glm-4.5-air/model-deployment.yaml" >}}
+{{< manifests "recipes/glm-4.5-air/model-deployment.yaml" >}}
 
-{{< manifests "examples/glm-4.5-air/model-service.yaml" >}}
+{{< manifests "recipes/glm-4.5-air/model-service.yaml" >}}
 <!-- vale write-good.Passive = YES -->

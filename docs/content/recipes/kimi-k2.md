@@ -32,13 +32,13 @@ edit before applying.
 
 ## Platform
 
-{{< manifests "examples/kimi-k2/inference-class.yaml" >}}
+{{< manifests "recipes/kimi-k2/inference-class.yaml" >}}
 
-{{< manifests path="examples/kimi-k2/inference-cluster.yaml" apply="false" >}}
+{{< manifests path="recipes/kimi-k2/inference-cluster.yaml" apply="false" >}}
 
 {{< editCode >}}
 ```bash
-curl -fsSL {{< manifest-url "examples/kimi-k2/inference-cluster.yaml" >}} \
+curl -fsSL {{< manifest-url "recipes/kimi-k2/inference-cluster.yaml" >}} \
   | sed 's/cr-0123456789abcdef0/$@<your-reservation-id>$@/' \
   | kubectl apply -f -
 ```
@@ -46,9 +46,9 @@ curl -fsSL {{< manifest-url "examples/kimi-k2/inference-cluster.yaml" >}} \
 
 ## Deployment
 
-{{< manifests "examples/kimi-k2/model-cache.yaml" >}}
+{{< manifests "recipes/kimi-k2/model-cache.yaml" >}}
 
-{{< manifests "examples/kimi-k2/model-deployment.yaml" >}}
+{{< manifests "recipes/kimi-k2/model-deployment.yaml" >}}
 
-{{< manifests "examples/kimi-k2/model-service.yaml" >}}
+{{< manifests "recipes/kimi-k2/model-service.yaml" >}}
 <!-- vale write-good.Passive = YES -->

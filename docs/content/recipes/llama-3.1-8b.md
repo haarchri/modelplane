@@ -35,20 +35,20 @@ served in this run. Apply the platform side first, then the ML side. The GKE
 
 {{< tabs >}}
 {{< tab "EKS" >}}
-{{< manifests "examples/llama-3.1-8b/inference-class-eks.yaml" >}}
+{{< manifests "recipes/llama-3.1-8b/inference-class-eks.yaml" >}}
 
-{{< manifests "examples/llama-3.1-8b/inference-cluster-eks.yaml" >}}
+{{< manifests "recipes/llama-3.1-8b/inference-cluster-eks.yaml" >}}
 {{< /tab >}}
 {{< tab "GKE" >}}
-{{< manifests "examples/llama-3.1-8b/inference-class-gke.yaml" >}}
+{{< manifests "recipes/llama-3.1-8b/inference-class-gke.yaml" >}}
 
-{{< manifests "examples/llama-3.1-8b/inference-cluster-gke.yaml" >}}
+{{< manifests "recipes/llama-3.1-8b/inference-cluster-gke.yaml" >}}
 {{< /tab >}}
 {{< /tabs >}}
 
 ## Deployment
 
-{{< manifests "examples/llama-3.1-8b/model-deployment.yaml" >}}
+{{< manifests "recipes/llama-3.1-8b/model-deployment.yaml" >}}
 
-{{< manifests "examples/llama-3.1-8b/model-service.yaml" >}}
+{{< manifests "recipes/llama-3.1-8b/model-service.yaml" >}}
 <!-- vale write-good.Passive = YES -->

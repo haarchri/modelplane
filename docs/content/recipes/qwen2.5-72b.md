@@ -36,24 +36,24 @@ platform side first, then the ML side.
 
 {{< tabs >}}
 {{< tab "AKS" >}}
-{{< manifests "examples/qwen2.5-72b/inference-class-aks.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/inference-class-aks.yaml" >}}
 
-{{< manifests "examples/qwen2.5-72b/inference-cluster-aks.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/inference-cluster-aks.yaml" >}}
 {{< /tab >}}
 {{< tab "Nebius" >}}
-{{< manifests "examples/qwen2.5-72b/inference-class-nebius.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/inference-class-nebius.yaml" >}}
 
-{{< manifests "examples/qwen2.5-72b/inference-cluster-nebius.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/inference-cluster-nebius.yaml" >}}
 {{< /tab >}}
 {{< /tabs >}}
 
 ## Deployment
 
-{{< manifests "examples/qwen2.5-72b/model-cache.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/model-cache.yaml" >}}
 
-{{< manifests "examples/qwen2.5-72b/model-deployment.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/model-deployment.yaml" >}}
 
-{{< manifests "examples/qwen2.5-72b/model-service.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/model-service.yaml" >}}
 
 ## Compare the A100 and the H100
 
@@ -65,7 +65,7 @@ traffic between the platforms by weight. This service pairs the deployment
 label with each cluster label and gives each GPU half of the live traffic
 behind the same URL:
 
-{{< manifests "examples/qwen2.5-72b/model-service-split.yaml" >}}
+{{< manifests "recipes/qwen2.5-72b/model-service-split.yaml" >}}
 
 Both GPUs now serve the same workload, so their engine metrics give a direct
 performance comparison: scrape each replica's latency and throughput as in

@@ -138,7 +138,7 @@ the Modelplane name and logos are not covered by it.
 [CONTRIBUTING.md]: CONTRIBUTING.md
 [getting-started]: https://docs.modelplane.ai/getting-started/
 [how-it-works]: https://docs.modelplane.ai/overview/how-it-works/
-[examples]: docs/manifests/examples/
+[examples]: docs/manifests/recipes/
 [issues]: https://github.com/modelplaneai/modelplane/issues
 [enhancements]: https://github.com/modelplaneai/modelplane/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement
 [slack]: https://slack.modelplane.ai

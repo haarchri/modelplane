@@ -34,20 +34,20 @@ edit before applying.
 
 {{< tabs >}}
 {{< tab "Multi-node (BF16)" >}}
-{{< manifests "examples/qwen3-coder/inference-class.yaml" >}}
+{{< manifests "recipes/qwen3-coder/inference-class.yaml" >}}
 
-{{< manifests path="examples/qwen3-coder/inference-cluster.yaml" apply="false" >}}
+{{< manifests path="recipes/qwen3-coder/inference-cluster.yaml" apply="false" >}}
 
 {{< editCode >}}
 ```bash
-curl -fsSL {{< manifest-url "examples/qwen3-coder/inference-cluster.yaml" >}} \
+curl -fsSL {{< manifest-url "recipes/qwen3-coder/inference-cluster.yaml" >}} \
   | sed 's/cr-0123456789abcdef0/$@<your-reservation-id>$@/' \
   | kubectl apply -f -
 ```
 {{< /editCode >}}
 {{< /tab >}}
 {{< tab "Single-node (FP8)" >}}
-{{< manifests "examples/qwen3-coder/inference-class-fp8.yaml" >}}
+{{< manifests "recipes/qwen3-coder/inference-class-fp8.yaml" >}}
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -55,16 +55,16 @@ curl -fsSL {{< manifest-url "examples/qwen3-coder/inference-cluster.yaml" >}} \
 
 {{< tabs >}}
 {{< tab "Multi-node (BF16)" >}}
-{{< manifests "examples/qwen3-coder/model-cache.yaml" >}}
+{{< manifests "recipes/qwen3-coder/model-cache.yaml" >}}
 
-{{< manifests "examples/qwen3-coder/model-deployment.yaml" >}}
+{{< manifests "recipes/qwen3-coder/model-deployment.yaml" >}}
 
-{{< manifests "examples/qwen3-coder/model-service.yaml" >}}
+{{< manifests "recipes/qwen3-coder/model-service.yaml" >}}
 {{< /tab >}}
 {{< tab "Single-node (FP8)" >}}
-{{< manifests "examples/qwen3-coder/model-deployment-fp8.yaml" >}}
+{{< manifests "recipes/qwen3-coder/model-deployment-fp8.yaml" >}}
 
-{{< manifests "examples/qwen3-coder/model-service-fp8.yaml" >}}
+{{< manifests "recipes/qwen3-coder/model-service-fp8.yaml" >}}
 {{< /tab >}}
 {{< /tabs >}}
 <!-- vale write-good.Passive = YES -->

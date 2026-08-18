@@ -661,7 +661,14 @@ button.mp-vchip:hover { border-color: var(--mp-card-border-hi); }
 }
 .nav-vendor[open] > .nav-vendor-summary::after { transform: rotate(45deg); }
 // .bd-links inside carry their own indent; add just enough to nest under the tile.
-.nav-vendor-children { padding-left: 20px; }
+// One contrast step above --mp-muted: next to the bold vendor rows the dimmest
+// text tier reads as disabled, worst on the mobile drawer.
+.nav-vendor-children {
+  padding-left: 20px;
+  .bd-links { color: var(--mp-muted-hi) !important; }
+  .bd-links:hover { color: var(--body-font-color) !important; }
+  .bd-links.active { color: var(--content-link-color) !important; }
+}
 
 // ── FAQ disclosure ────────────────────────────────────────────
 .mp-faq {
