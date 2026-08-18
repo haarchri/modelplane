@@ -405,6 +405,7 @@ pre-stage
 read-only
 read-write
 ready-made
+region-gated
 resource-intensive
 self-contained
 self-service
