@@ -574,8 +574,17 @@ a.mp-chip:hover {
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  // Chips rendered as <button> (cloud chips that select a tab below).
+  &.mp-vchip--btn {
+    background: transparent;
+    font: inherit;
+    font-family: #{$font-family-monospace};
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
 }
-a.mp-vchip:hover { border-color: var(--mp-card-border-hi); }
+a.mp-vchip:hover,
+button.mp-vchip:hover { border-color: var(--mp-card-border-hi); }
 
 .mp-spec {
   background: var(--mp-card-bg);

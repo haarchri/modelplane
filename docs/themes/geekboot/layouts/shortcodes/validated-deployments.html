@@ -23,7 +23,13 @@
     <div class="mp-spec-label">Cloud</div>
     <div class="mp-spec-val">
       {{ range $d.clouds }}
-        <span class="mp-vchip{{ if in $clouds .term }} is-on{{ end }}">{{ partial "brand-tile" (dict "entry" . "class" "mp-brand-tile--xs") }}{{ .name }}</span>
+        {{ if in $clouds .term }}
+          {{/* Validated clouds are buttons: on pages with per-cloud tabs,
+               clicking selects the matching tab and scrolls to it. */}}
+          <button type="button" class="mp-vchip mp-vchip--btn is-on" onclick="mpShowTab('{{ .term }}')" title="Show the {{ .term }} manifests">{{ partial "brand-tile" (dict "entry" . "class" "mp-brand-tile--xs") }}{{ .name }}</button>
+        {{ else }}
+          <span class="mp-vchip">{{ partial "brand-tile" (dict "entry" . "class" "mp-brand-tile--xs") }}{{ .name }}</span>
+        {{ end }}
       {{ end }}
     </div>
   </div>
@@ -44,12 +50,13 @@
       {{ end }}
     </div>
   </div>
-  {{ with $p.Params.variants }}
+  {{ with $p.Params.precisions }}
   <div class="mp-spec-row">
-    <div class="mp-spec-label">Variant</div>
+    <div class="mp-spec-label">Precision</div>
     <div class="mp-spec-val">
-      {{ range . }}<span class="mp-vchip is-on">{{ . }}</span>{{ end }}
-      {{ with $p.Params.ctx }}<span class="mp-spec-note">{{ . }} ctx</span>{{ end }}
+      {{ range . }}
+        <button type="button" class="mp-vchip mp-vchip--btn is-on" onclick="mpShowTab('{{ . }}')">{{ . }}</button>
+      {{ end }}
     </div>
   </div>
   {{ end }}
@@ -59,9 +66,33 @@
       {{ range $d.engines }}
         <span class="mp-vchip{{ if in $engines . }} is-on{{ end }}">{{ . }}</span>
       {{ end }}
-      {{ range $p.Params.engineimages }}<span class="mp-vchip mp-vchip--code is-on">{{ . }}</span>{{ end }}
     </div>
   </div>
+  {{ with $p.Params.engineimages }}
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Image</div>
+    <div class="mp-spec-val">
+      {{ range . }}<span class="mp-vchip mp-vchip--code is-on">{{ . }}</span>{{ end }}
+    </div>
+  </div>
+  {{ end }}
+  {{ with $p.Params.features }}
+  <div class="mp-spec-row">
+    <div class="mp-spec-label">Features</div>
+    <div class="mp-spec-val">
+      {{ range . }}
+        {{ if .href }}
+          {{/* Anchors link within the page; paths resolve via relref so a
+               stale link fails the build. */}}
+          <a class="mp-vchip is-on" href="{{ if strings.HasPrefix .href "#" }}{{ .href }}{{ else }}{{ relref $p .href }}{{ end }}">{{ .name }}</a>
+        {{ else }}
+          <span class="mp-vchip is-on">{{ .name }}</span>
+        {{ end }}
+        {{ with .note }}<span class="mp-spec-note">{{ . }}</span>{{ end }}
+      {{ end }}
+    </div>
+  </div>
+  {{ end }}
   <div class="mp-spec-row">
     <div class="mp-spec-label">Manifests</div>
     <div class="mp-spec-val">
@@ -72,3 +103,22 @@
     </div>
   </div>
 </div>
+<script>
+function mpShowTab(name) {
+  var tabs = document.querySelectorAll('.nav-tabs .nav-link');
+  var match = null;
+  for (var i = 0; i < tabs.length && !match; i++) {
+    if (tabs[i].textContent.trim() === name) match = tabs[i];
+  }
+  for (var j = 0; j < tabs.length && !match; j++) {
+    if (tabs[j].textContent.indexOf(name) !== -1) match = tabs[j];
+  }
+  if (match) {
+    match.click();
+    match.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  var platform = document.getElementById('platform');
+  if (platform) platform.scrollIntoView({ behavior: 'smooth' });
+}
+</script>

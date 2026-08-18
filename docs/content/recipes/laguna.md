@@ -8,12 +8,11 @@ clouds: [Nebius]
 accelerators: [H100]
 engines: [vLLM, SGLang]
 arch: MoE
-precision: FP8
+precisions: ["FP8"]
 size: 118B A8B
 ctx: "262,144"
 servingModes: [Standalone]
 engineImages: [vllm/vllm-openai:v0.25.1, lmsysorg/sglang:v0.5.12.post1-cu129]
-variants: ["FP8 · vLLM", "FP8 · SGLang"]
 gpuNote: 8× per node
 ---
 <!-- vale write-good.Passive = NO -->

@@ -8,12 +8,11 @@ clouds: [EKS, GKE]
 accelerators: [L4]
 engines: [vLLM]
 arch: Dense
-precision: BF16
+precisions: ["BF16"]
 size: 8B
 ctx: "8,192"
 servingModes: [Standalone]
 engineImages: [vllm/vllm-openai:v0.7.3]
-variants: ["BF16 · EKS", "BF16 · GKE"]
 gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->

@@ -8,12 +8,11 @@ clouds: [Nebius]
 accelerators: [H100]
 engines: [vLLM]
 arch: MoE
-precision: NVFP4
+precisions: ["NVFP4"]
 size: 30B A3B
 ctx: "65,536"
 servingModes: [Standalone]
 engineImages: [vllm/vllm-openai:v0.27.1]
-variants: ["NVFP4 · Nebius"]
 gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->

@@ -8,12 +8,11 @@ clouds: [EKS]
 accelerators: [H200]
 engines: [vLLM]
 arch: MoE
-precision: INT4
+precisions: ["INT4"]
 size: 1T A32B
 ctx: "131,072"
 servingModes: [PrefillDecode]
 engineImages: [vllm/vllm-openai:v0.23.0]
-variants: ["INT4 · EKS"]
 gpuNote: 8× per node
 ---
 <!-- vale write-good.Passive = NO -->

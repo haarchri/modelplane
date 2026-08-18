@@ -8,12 +8,11 @@ clouds: [AKS, Nebius]
 accelerators: [A100, H100]
 engines: [vLLM]
 arch: Dense
-precision: AWQ INT4
+precisions: ["AWQ INT4"]
 size: 72B
 ctx: "8,192"
 servingModes: [Standalone]
 engineImages: [vllm/vllm-openai:v0.23.0]
-variants: ["AWQ INT4 · AKS", "AWQ INT4 · Nebius"]
 gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->

@@ -8,12 +8,11 @@ clouds: [EKS]
 accelerators: [H200]
 engines: [vLLM, SGLang]
 arch: MoE
-precision: BF16/FP8
+precisions: [BF16, FP8]
 size: 480B A35B
 ctx: "32,768"
 servingModes: [Standalone, LeaderWorker]
 engineImages: [vllm/vllm-openai:v0.23.0, lmsysorg/sglang:v0.5.10.post1-runtime]
-variants: ["BF16 multi-node · vLLM", "FP8 single-node · SGLang"]
 gpuNote: 8× per node
 ---
 <!-- vale write-good.Passive = NO -->

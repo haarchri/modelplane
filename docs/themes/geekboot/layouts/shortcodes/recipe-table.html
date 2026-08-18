@@ -47,7 +47,7 @@
           </td>
           <td class="mp-t-mono">{{ .Params.size }}</td>
           <td>{{ .Params.arch }}</td>
-          <td class="mp-t-mono">{{ .Params.precision }}</td>
+          <td class="mp-t-mono">{{ delimit (.Params.precisions | default slice) " / " }}</td>
           <td class="mp-t-chips">
             {{ range .Params.clouds }}<span class="mp-vchip">{{ . }}</span>{{ end }}
             {{ range .Params.accelerators }}<span class="mp-vchip"><strong>{{ . }}</strong></span>{{ end }}

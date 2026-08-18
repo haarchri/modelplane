@@ -8,12 +8,11 @@ clouds: [GKE]
 accelerators: [A100]
 engines: [llama.cpp]
 arch: MoE
-precision: GGUF IQ4_XS
+precisions: ["GGUF IQ4_XS"]
 size: 106B A12B
 ctx: "8,192"
 servingModes: [Standalone]
 engineImages: [ghcr.io/ggml-org/llama.cpp:server-cuda]
-variants: ["GGUF IQ4_XS · GKE"]
 gpuNote: 1× per node
 ---
 <!-- vale write-good.Passive = NO -->
