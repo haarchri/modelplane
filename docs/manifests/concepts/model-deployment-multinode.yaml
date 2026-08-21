@@ -3,12 +3,27 @@
 # When a model is too large to fit on one node's GPUs, make an engine a gang:
 # give it a Leader and a Worker member, whose worker.nodes expands to that many
 # worker pods, one per node. The scheduler picks a cluster with a pool that has
-# enough GPUs per node and enough nodes for the whole gang, and Modelplane
-# composes a LeaderWorkerSet-backed serving instance on it. A member joins the
-# leader through $(MODELPLANE_LEADER_ADDRESS) and takes its rank from
-# $(MODELPLANE_RANK) (0 on the Leader, 1..worker.nodes on the followers), both
-# injected by Modelplane - so the same Worker template fans out to any number
-# of nodes.
+# enough GPUs per node and enough nodes for the whole gang.
+#
+# By default a cluster serves multi-node gangs with the Standard stack
+# (InferenceCluster.spec.stack: Standard), so Modelplane
+# composes the gang into a LeaderWorkerSet. On that backend Modelplane injects
+# backend-neutral env vars into every gang pod, so the command is the same for
+# the leader and the workers:
+#   - $(MODELPLANE_LEADER_ADDRESS) is the address the leader is reachable at.
+#   - $(MODELPLANE_RANK) is the pod's node rank: 0 on the leader, 1..N on the
+#     workers. The worker also adds --headless.
+#
+# On a cluster that opts into the Dynamo stack (Grove + KAI Scheduler,
+# InferenceCluster.spec.stack: Dynamo), $(MODELPLANE_LEADER_ADDRESS) also
+# resolves - the Grove backend aliases Grove's own per-gang pod-discovery vars
+# to it (grove#753, needs Grove v0.1.0-alpha.12-rc2+, which is what this
+# stack now pins). $(MODELPLANE_RANK) does NOT: Grove exposes no group-wide
+# pod index yet (grove#754/grove#755, open), so a Dynamo command must still
+# compute node-rank itself: 0 on the leader, and
+# $$((GROVE_PCLQ_POD_INDEX + 1)) on the workers ($$ escapes past Kubernetes to
+# leave a literal $((...)) for the shell to evaluate) - replacing this
+# example's --node-rank=$(MODELPLANE_RANK) with that expression on Dynamo.
 #
 # Multi-node engines require a ModelCache: every pod in the gang mounts it at
 # /mnt/models. When a member brings its own command, Modelplane does not inject
