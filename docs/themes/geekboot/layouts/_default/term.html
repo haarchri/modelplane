@@ -41,7 +41,7 @@
   </aside>
 
   <main class="bd-main order-1">
-    {{ $hasVersions := hugo.Data.versions.versions }}
+    {{ $hasVersions := site.Data.versions.versions }}
     {{ if or $ref $hasVersions }}
     <header class="doc-content-nav">
       {{ if $ref }}
@@ -68,9 +68,9 @@
           {{ $entry := dict "name" .Title }}
           {{ $found := false }}
           {{ if eq .Data.Plural "vendors" }}
-            {{ range hugo.Data.recipes.vendors }}{{ if eq .name $.Title }}{{ $entry = . }}{{ $found = true }}{{ end }}{{ end }}
+            {{ range site.Data.recipes.vendors }}{{ if eq .name $.Title }}{{ $entry = . }}{{ $found = true }}{{ end }}{{ end }}
           {{ else if eq .Data.Plural "clouds" }}
-            {{ range hugo.Data.recipes.clouds }}{{ if eq .term $.Title }}{{ $entry = . }}{{ $found = true }}{{ end }}{{ end }}
+            {{ range site.Data.recipes.clouds }}{{ if eq .term $.Title }}{{ $entry = . }}{{ $found = true }}{{ end }}{{ end }}
           {{ end }}
           {{ $recipeCount := len .Pages }}
           <div class="mp-recipe-head mp-recipe-head--term">

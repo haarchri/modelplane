@@ -17,12 +17,6 @@ vendors:
   - name: Z.ai
     org: zai-org
     icon: brand-zai
-  - name: NVIDIA
-    org: nvidia
-    icon: brand-nvidia
-  - name: Poolside
-    org: poolside
-    icon: brand-poolside
 clouds:
   - name: AWS
     term: EKS
@@ -30,24 +24,11 @@ clouds:
   - name: Google Cloud
     term: GKE
     icon: brand-googlecloud
-  - name: Azure
-    term: AKS
-    icon: brand-azure
-  - name: Nebius
-    term: Nebius
-    icon: brand-nebius
-  - name: Vultr
-    term: Vultr
-    icon: brand-vultr
 gpus:
-  - name: A16
-    mem: 16G
   - name: L4
     mem: 24G
   - name: A100
     mem: 40/80G
-  - name: H100
-    mem: 80G
   - name: H200
     mem: 141G
 servingModes:

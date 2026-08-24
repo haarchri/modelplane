@@ -22,13 +22,13 @@
         <a class="nav-section-link nav-top-link{{ if eq . $current }} active{{ end }}" href="{{ .Permalink }}">{{ .Title }}</a>
       </div>
     {{ end }}
-    {{ range hugo.Data.apigroups.groups }}
+    {{ range site.Data.apigroups.groups }}
       <div class="nav-group">
         <div class="nav-group-label">{{ .title }}</div>
         <div class="nav-children">
           {{ range .kinds }}
             {{ $k := . }}
-            {{ range $plural, $dir := hugo.Data.apis.crds }}
+            {{ range $plural, $dir := site.Data.apis.crds }}
               {{ $crd := $dir.definition }}
               {{ if and $crd (eq $crd.spec.names.kind $k) }}
                 {{ with site.GetPage (printf "/reference/%s" $plural) }}
@@ -47,7 +47,7 @@
     {{ with $rec }}
       <div class="nav-group">
         <div class="nav-group-label">{{ .Params.navLabel | default .Title }}</div>
-        {{ range hugo.Data.recipes.vendors }}
+        {{ range site.Data.recipes.vendors }}
           {{ $entry := . }}
           {{ $tp := site.GetPage (printf "/vendors/%s" (urlize .name)) }}
           {{ $vendorPages := slice }}

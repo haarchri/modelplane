@@ -39,7 +39,7 @@
   </aside>
 
   <main class="bd-main order-1">
-    {{ $hasVersions := hugo.Data.versions.versions }}
+    {{ $hasVersions := site.Data.versions.versions }}
     {{ if or $ref $hasVersions }}
     <header class="doc-content-nav">
       {{ if $ref }}

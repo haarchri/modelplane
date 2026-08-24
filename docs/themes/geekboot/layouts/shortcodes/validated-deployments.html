@@ -7,7 +7,7 @@
   the page front matter; nothing here is hand-maintained per page.
 */}}
 {{ $p := .Page }}
-{{ $d := hugo.Data.recipes }}
+{{ $d := site.Data.recipes }}
 {{ $clouds := $p.Params.clouds | default slice }}
 {{ $gpus := $p.Params.accelerators | default slice }}
 {{ $modes := $p.Params.servingmodes | default slice }}

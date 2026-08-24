@@ -6,7 +6,7 @@
 */}}
 {{ $vendorName := index (.Params.vendors | default slice) 0 | default "" }}
 {{ $entry := dict "name" (or $vendorName .Title) }}
-{{ range hugo.Data.recipes.vendors }}{{ if eq .name $vendorName }}{{ $entry = . }}{{ end }}{{ end }}
+{{ range site.Data.recipes.vendors }}{{ if eq .name $vendorName }}{{ $entry = . }}{{ end }}{{ end }}
 <div class="mp-recipe-head">
   {{ partial "brand-tile" (dict "entry" $entry "class" "mp-brand-tile--lg") }}
   <div class="mp-recipe-head-text">

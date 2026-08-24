@@ -8,7 +8,7 @@
 {{/* Sort by vendor (data-file order) so a vendor's models sit together,
      keeping the curated weight order within each vendor. */}}
 {{ $recipes := slice }}
-{{ range hugo.Data.recipes.vendors }}
+{{ range site.Data.recipes.vendors }}
   {{ $vendor := .name }}
   {{ range $all }}
     {{ if eq (index (.Params.vendors | default slice) 0) $vendor }}{{ $recipes = $recipes | append . }}{{ end }}
@@ -34,7 +34,7 @@
       {{ range $recipes }}
         {{ $vendorName := index (.Params.vendors | default slice) 0 | default "" }}
         {{ $entry := dict "name" (or $vendorName .Title) }}
-        {{ range hugo.Data.recipes.vendors }}{{ if eq .name $vendorName }}{{ $entry = . }}{{ end }}{{ end }}
+        {{ range site.Data.recipes.vendors }}{{ if eq .name $vendorName }}{{ $entry = . }}{{ end }}{{ end }}
         <tr>
           <td class="mp-t-model">
             <a class="mp-t-model-link" href="{{ .RelPermalink }}">

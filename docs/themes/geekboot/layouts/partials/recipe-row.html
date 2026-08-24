@@ -14,7 +14,7 @@
     {{ range .Params.accelerators }}
       {{ $name := . }}
       {{ $mem := "" }}
-      {{ range hugo.Data.recipes.gpus }}{{ if eq .name $name }}{{ $mem = .mem }}{{ end }}{{ end }}
+      {{ range site.Data.recipes.gpus }}{{ if eq .name $name }}{{ $mem = .mem }}{{ end }}{{ end }}
       <span class="mp-vchip"><strong>{{ $name }}</strong>{{ with $mem }}&nbsp;{{ . }}{{ end }}</span>
     {{ end }}
     {{ range .Params.engines }}<span class="mp-vchip">{{ . }}</span>{{ end }}

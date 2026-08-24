@@ -17,7 +17,7 @@
   {{ end }}
 </div>
 <div class="mp-browse-grid">
-  {{ range hugo.Data.recipes.vendors }}
+  {{ range site.Data.recipes.vendors }}
     {{ $tp := site.GetPage (printf "/vendors/%s" (urlize .name)) }}
     {{ $count := 0 }}
     {{ with $tp }}{{ range .Pages }}{{ if eq .Section "recipes" }}{{ $count = add $count 1 }}{{ end }}{{ end }}{{ end }}
@@ -40,7 +40,7 @@
   <span class="mp-browse-title">Browse by cloud provider</span>
 </div>
 <div class="mp-browse-grid">
-  {{ range hugo.Data.recipes.clouds }}
+  {{ range site.Data.recipes.clouds }}
     {{ $tp := site.GetPage (printf "/clouds/%s" (urlize .term)) }}
     {{ $count := 0 }}
     {{ with $tp }}{{ range .Pages }}{{ if eq .Section "recipes" }}{{ $count = add $count 1 }}{{ end }}{{ end }}{{ end }}
