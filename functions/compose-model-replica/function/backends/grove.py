@@ -14,62 +14,26 @@
 
 """Grove multi-pod backend: a PodCliqueScalingGroup for a Leader/Worker engine.
 
-Selected for a Leader/Worker engine when the target cluster's serving stack is
-stack: Dynamo; Standard (the llmd backend) is the default alternative. Renders a
-PodCliqueSet whose template holds two cliques - "leader"
-(one pod) and "worker" (the Worker member's node count) - grouped into one
-PodCliqueScalingGroup gang-scheduled by KAI. engine.copies is the scaling
-group's replica count, so each copy is an independent leader+worker gang; the
-PodCliqueSet itself has a single replica.
+Selected for a Leader/Worker engine on a stack: Dynamo cluster; llmd is the
+Standard alternative. Both cliques sit in one scaling group so Grove treats the
+gang as a single schedulable, addressable unit, and engine.copies scales the
+pair together.
 
-The scaling group (rather than two standalone cliques) is what lets Grove treat
-a gang as one schedulable, addressable unit: engine.copies scales the whole
-leader+worker pair together, and (once the leader address is aliased - see
-below) each gang is independently addressable. Grove doesn't yet number a
-gang's pods 0..N across its member cliques the way a multi-node engine's rank
-wants; grove#754 tracks exposing that (https://github.com/ai-dynamo/grove/issues/754,
-open, same gap as grove#755 below).
+Modelplane is unopinionated about the engine: both members' commands and args
+pass through verbatim, so a launch convention Modelplane has never heard of
+still works. Routing is layered on afterwards by routing.py.
 
-Routing is layered on afterwards by routing.py, the same as the native
-backend: a GAIE InferencePool + endpoint picker fronts the leader clique's
-pods, selected by the serving label they carry. The worker clique carries no
-serving label, so the pool never routes to it.
+A member addresses the leader through $(MODELPLANE_LEADER_ADDRESS), which
+resolves per gang (see base.grove_leader_address_env). There's no
+MODELPLANE_RANK: Grove numbers pods within a clique, not across the gang, so a
+command derives its own rank from $((GROVE_PCLQ_POD_INDEX + 1)) on the workers.
+Env expansion substitutes strings and can't do the +1, so this needs a
+group-wide index from Grove (grove#755) before it can be aliased like the
+address. See docs/manifests/concepts/model-deployment-multinode.yaml.
 
-Modelplane is unopinionated about the engine. Both the leader's and the
-worker's commands and args are passed through verbatim - Modelplane injects no
-parallelism flags and no bootstrap. A multi-node launch convention Modelplane
-has never heard of still works, because the coordination asymmetry between
-running the head and joining it lives in the two members' commands, which the
-user writes.
-
-The leader's address is backend-neutral: Modelplane injects
-MODELPLANE_LEADER_ADDRESS into every gang pod (see base.grove_leader_address_env),
-aliasing Grove's own $(GROVE_PCSG_NAME)-$(GROVE_PCSG_INDEX)-leader-0.$(GROVE_HEADLESS_SERVICE)
-- the leader clique's one pod, named per-gang so each of engine.copies'
-independent gangs addresses its own leader, not gang 0's. This needs Grove to
-inject its vars before template env, which only v0.1.0-alpha.12-rc2 and later
-do (grove#753); this backend pins that version for exactly this reason.
-
-The rank is not yet backend-neutral. Each pod finds it through
-GROVE_PCLQ_POD_INDEX, which Grove injects into every gang pod, scoped to the
-pod's own PodClique instance (0 on the leader clique's one pod, 0..N-1 on the
-worker clique's pods) - already gang-scoped, since Grove creates separate
-PodClique instances per gang, but not a single rank space spanning both
-cliques the way LWS's LWS_WORKER_INDEX is. A gang engine's command computes
-its own rank: 0 on the leader, $((GROVE_PCLQ_POD_INDEX + 1)) on the workers,
-the shell doing the +1 the downward API can't. Modelplane can't wrap this in
-MODELPLANE_RANK the way it does the leader address until Grove exposes a
-group-wide pod index (grove#755: https://github.com/ai-dynamo/grove/pull/755,
-open) - env expansion is string substitution, not arithmetic, so there's no
-way to shift GROVE_PCLQ_POD_INDEX by 1 for the workers without it. See
-docs/manifests/concepts/model-deployment-multinode.yaml.
-TODO(grove#755): once a Grove release exposes a group-wide pod index, inject
-MODELPLANE_RANK too and drop the module's dependency on GROVE_PCLQ_POD_INDEX
-naming.
-
-Weight loading mirrors native: the engine's --model arg is passed through
-unmodified, so the engine fetches from its source at startup using credentials
-from engine.env.
+Weight loading mirrors native: the engine names its own model, and with a cache
+base.cache_env points HuggingFace at the mount so that name resolves to the
+staged weights.
 """
 
 from models.ai.modelplane.modelreplica import v1alpha1
@@ -111,11 +75,6 @@ class GroveBackend:
         def container(member: v1alpha1.Member, *, serving: bool) -> dict:
             engine_container = base.engine_container(member)
             args = list(engine_container.args or [])
-            # The turnkey cache --model injection is for the serving engine (the
-            # leader) only; a worker joins via its own command and never serves,
-            # so injecting --model into it would be a flag it doesn't expect.
-            if serving:
-                args = base.apply_cache_args(args, replica, engine_container)
             c = {
                 "name": "engine",
                 "image": engine_container.image,
@@ -131,15 +90,14 @@ class GroveBackend:
                 c["command"] = list(engine_container.command)
             if args:
                 c["args"] = args
-            # MODELPLANE_LEADER_ADDRESS ahead of the user's env entries, so
-            # they (and commands) can reference $(MODELPLANE_LEADER_ADDRESS) -
-            # see base.grove_leader_address_env and the module docstring. No
-            # MODELPLANE_RANK yet (same docstring): a gang engine's command
-            # computes its own rank from GROVE_PCLQ_POD_INDEX directly (see
-            # the multinode example). ModelExpress env (if the cache
-            # distributes that way) applies to every rank, leader and worker
-            # alike - each rank publishes itself as a source independently.
-            env = [base.grove_leader_address_env(), *base.modelexpress_env(replica, stack)]
+            # Modelplane's entries lead so the user's can reference them:
+            # $(VAR) expansion is left to right. ModelExpress applies to workers
+            # too, since each pod publishes itself as a source independently.
+            env = [
+                base.grove_leader_address_env(),
+                *base.cache_env(replica),
+                *base.modelexpress_env(replica, stack),
+            ]
             if engine_container.env:
                 env.extend(e.model_dump(exclude_none=True) for e in engine_container.env)
             if env:
@@ -180,12 +138,10 @@ class GroveBackend:
                 spec["imagePullSecrets"] = [s.model_dump(exclude_none=True) for s in secrets]
             return spec
 
-        # Only the leader serves the OpenAI API -> its clique carries the
-        # serving label the replica's InferencePool selects on, plus the queue
-        # label every Grove-composed clique needs (see compose-serving-stack's
-        # compose_kai_queues), the serving port, and the readiness probe. The
-        # leader member's own template.metadata merges in underneath them; Grove
-        # propagates a clique's labels and annotations to its pods.
+        # Only the leader serves the OpenAI API, so only its clique carries the
+        # serving label the InferencePool selects on. The queue label is what
+        # KAI schedules against (see compose-serving-stack's compose_kai_queues).
+        # Grove propagates a clique's labels to its pods.
         leader_clique = {
             "name": base.GROVE_LEADER_CLIQUE,
             **base.pod_metadata(
@@ -203,23 +159,15 @@ class GroveBackend:
                 "podSpec": pod_spec(leader, container(leader, serving=True)),
             },
         }
-        # The worker clique doesn't serve the OpenAI API, so it carries no
-        # serving label - the InferencePool must never route to it. minAvailable
-        # equals its full replica count, so a gang is all-or-nothing: Grove (via
-        # KAI) won't consider the worker clique available on a partial start.
-        # Only the worker member's own template.metadata applies. These
-        # per-clique replica counts are per scaling-group replica; Grove
-        # multiplies them by the group's replica count (engine.copies).
+        # No serving label: the InferencePool must never route to a worker.
+        # minAvailable equals the replica count so a partial start doesn't count
+        # as available. These counts are per scaling-group replica, which Grove
+        # multiplies by engine.copies.
         #
-        # No startsAfter: the leader and worker cliques start together. A
-        # multi-node engine's leader only becomes Ready once every worker has
-        # joined it (that's what forms the parallel group), so gating the
-        # workers on the leader's readiness - Grove's startsAfter waits for the
-        # parent clique's minAvailable pods to go Ready - would deadlock: the
-        # leader waits for workers it will never get. The gang is co-scheduled
-        # regardless (the scaling group's minAvailable), and a worker's command
-        # reaches the leader through the leader's stable DNS name, retrying
-        # until the leader is listening.
+        # No startsAfter. It would gate the workers on the leader going Ready,
+        # which deadlocks: the leader isn't Ready until the workers have joined
+        # it. They start together instead, and a worker retries the leader's
+        # stable DNS name until it's listening.
         worker_clique = {
             "name": base.GROVE_WORKER_CLIQUE,
             **base.pod_metadata(worker, {base.GROVE_QUEUE_LABEL: base.GROVE_QUEUE}),
@@ -231,17 +179,19 @@ class GroveBackend:
             },
         }
 
-        # A single PodCliqueSet replica holds one scaling group that gangs the
-        # leader and worker cliques. engine.copies is the scaling group's
-        # replica count, so it scales the whole gang: Grove creates copies
-        # independent leader+worker groups, each with its own group-wide pod
-        # index (the rank), rather than copies loose leader/worker pods. The
-        # group's minAvailable matches its replica count, so every copy must be
-        # available for the PodCliqueSet to report itself available (the
-        # readiness signal GROVE_AVAILABLE_CEL reads). Fields the defaulting
-        # webhook would otherwise fill in (minAvailable above, terminationDelay,
-        # headlessServiceConfig) are set explicitly so provider-kubernetes
-        # doesn't fight the webhook on every reconcile.
+        # engine.copies is the scaling group's replica count, so each copy is an
+        # independent leader+worker gang. minAvailable is 1 whatever copies is:
+        # Grove puts every replica below the threshold into one shared PodGang,
+        # so matching it to copies gang-schedules all of them as a single unit
+        # and deletes every copy once any one sits below it for
+        # terminationDelay. A copy is still all-or-nothing through its cliques'
+        # own minAvailable. Fields the defaulting webhook would fill in are set
+        # explicitly so provider-kubernetes doesn't fight it on every reconcile.
+        #
+        # NOTE(negz): the cost is that a replica reports available once one copy
+        # serves, since PodCliqueSet.status.availableReplicas is the only signal
+        # Grove populates - status.podGangStatuses exists on the type but
+        # nothing writes it.
         copies = int(engine.copies or 1)
         pod_clique_set = {
             "apiVersion": "grove.io/v1alpha1",
@@ -259,7 +209,7 @@ class GroveBackend:
                             "name": base.GROVE_PCSG,
                             "cliqueNames": [base.GROVE_LEADER_CLIQUE, base.GROVE_WORKER_CLIQUE],
                             "replicas": copies,
-                            "minAvailable": copies,
+                            "minAvailable": 1,
                         }
                     ],
                 },

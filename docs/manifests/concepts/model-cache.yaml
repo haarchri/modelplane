@@ -4,6 +4,12 @@
 # references it via spec.modelCacheRef; the PVC mounts at /mnt/models read-write
 # into every serving pod, so the engine reads weights locally instead of
 # fetching them at boot.
+#
+# The engine command doesn't change when a model is cached. A HuggingFace source
+# stages in HuggingFace's own cache layout, and Modelplane points the engine's
+# HF_HUB_CACHE at the mount, so naming the model by its repo id
+# (--model=Qwen/Qwen3-Coder-480B-A35B-Instruct) resolves to the staged weights
+# rather than pulling them.
 apiVersion: modelplane.ai/v1alpha1
 kind: ModelCache
 metadata:

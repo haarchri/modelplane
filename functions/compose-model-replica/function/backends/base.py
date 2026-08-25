@@ -104,27 +104,29 @@ def cache_mounts(replica: v1alpha1.ModelReplica) -> tuple[list[dict], list[dict]
     )
 
 
-def apply_cache_args(args: list[str], replica: v1alpha1.ModelReplica, engine: v1alpha1.Container) -> list[str]:
-    """Inject --model=<mount> for the turnkey vLLM path only.
+def cache_env(replica: v1alpha1.ModelReplica) -> list[dict]:
+    """Env that makes the cache mount resolvable by the model's own name, or [].
 
-    KServe used to inject this; nothing does now, and without it vLLM silently
-    serves facebook/opt-125m. It is vLLM-specific (the `--model` flag), so it is
-    skipped when:
-    - no cache is referenced;
-    - the engine brings its own `command` — a non-vLLM engine like SGLang owns
-      its args and points at the mount with its own flag (`--model-path`), so
-      injecting `--model` would hand it an unknown flag; or
-    - the user already set `--model`.
+    compose-model-cache stages a HuggingFace source in HuggingFace's own cache
+    layout, so pointing HF_HUB_CACHE at the mount lets an engine load by repo id
+    against the staged snapshot. The command is then the same cached or not, and
+    Modelplane injects no --model of its own (#407). No HF_HUB_OFFLINE: it isn't
+    needed to resolve the snapshot, and it breaks an engine that fetches a
+    second repo at startup, like kimi-k2's gated tokenizer.
 
-    The cache *volume/mount* (cache_mounts) is added regardless of engine shape;
-    only this arg injection is vLLM-specific.
+    An engine must name the revision its cache staged. A bare repo id resolves
+    at the default branch, so a cache pinned to a commit or tag misses unless
+    the engine passes that revision too.
+
+    HF_HUB_CACHE is a cache root, not a pin, so an engine fetching some other
+    repo by id writes it to the shared PVC rather than its own filesystem.
+
+    HuggingFace-specific because the source is. A second ModelCache source would
+    stage its own layout and gate this on the source.
     """
-    ref = replica.spec.modelCacheRef
-    if not ref or engine.command:
-        return args
-    if any(a == "--model" or a.startswith("--model=") for a in args):
-        return args
-    return [*args, f"--model={CACHE_MOUNT_PATH}"]
+    if not replica.spec.modelCacheRef:
+        return []
+    return [{"name": "HF_HUB_CACHE", "value": CACHE_MOUNT_PATH}]
 
 
 # Well-known name of the per-cluster shared ModelExpress server that
@@ -143,53 +145,29 @@ def modelexpress_env(replica: v1alpha1.ModelReplica, stack: str) -> list[dict]:
     """ModelExpress P2P env for an engine pod that references a cache on a
     Dynamo cluster, or [] otherwise.
 
-    Gated on the cluster's stack being Dynamo (so the shared metadata-only
-    ModelExpress server is present) and the replica referencing a cache (so
-    there are weights on a PVC to seed from). Both the native (Standalone) and
-    Grove (Leader/Worker gang) backends inject it on Dynamo; a Standalone
-    deployment scaled to several replicas is as valid a P2P peer set as a gang.
-    Injecting it whenever those conditions hold is harmless: the bundle is
-    inert unless the engine opts in (see HF_HUB_OFFLINE note below).
+    Gated on Dynamo, where the metadata-only server runs, and on referencing a
+    cache, where there are weights to seed from. A scaled Standalone deployment
+    is as valid a peer set as a gang, so the native backend injects it too.
+    Every variable here is read only by ModelExpress's client, so the bundle is
+    inert unless the engine opts in with --load-format modelexpress, which
+    Modelplane never injects.
 
-    MX_SERVER_ADDRESS is the current variable; MODELEXPRESS_URL is deprecated
-    but still read by every ModelExpress client path and takes precedence
-    when both are set, so both are set here during that transition. Both point
-    at the per-cluster shared server's Service (modelexpress-server:8001), not
-    a per-cache name. The server is metadata-only: it coordinates peer
-    discovery and never downloads weights. MX_P2P_METADATA turns on the
-    peer-to-peer path, where the weights move GPU-to-GPU between engine pods
-    (NIXL) and the server only brokers which peer holds them. HF_HUB_CACHE
-    matches the PVC mount so the loader resolves against the pre-staged tree.
+    MODEL_EXPRESS_URL is deprecated in favour of MX_SERVER_ADDRESS but still
+    takes precedence when both are set, so both are set. No cache-directory
+    variable: ModelExpress falls back to HF_HUB_CACHE, which cache_env sets.
 
-    MX_MODEL_REVISION isolates this cache's P2P source identity. ModelExpress
-    content-addresses a source from the model path plus revision, but every
-    cache mounts at the same CACHE_MOUNT_PATH, so without a distinguishing
-    revision two different caches with the same engine config would hash to
-    one source id and a replica could pull a peer serving other weights. Every
-    engine pod lands in the workload cluster's one `default` namespace
-    (REMOTE_NAMESPACE) regardless of which Modelplane namespace composed it, so
-    a bare cache name isn't enough either: two Modelplane namespaces (say
-    team-a and team-b) can each have their own ModelCache named "qwen" with
-    different content, both landing replicas in that same remote namespace.
-    cache_pvc_name qualifies by the Modelplane namespace for exactly this
-    reason; MX_MODEL_REVISION reuses that same identity so it's stable across
-    every replica of one cache (genuine peers still match), distinct across
-    caches, and distinct across namespaces. It is not the resolved HF revision
-    - a cache carries no resolved revision yet - so a delete-and-recreate under
-    the same name reuses the id; the ModelMetadata CRs are pod-owned and GC'd
-    with the old replicas, so stale peers clear themselves. POD_NAME/POD_UID/
-    POD_NAMESPACE let the server set an owner reference from this pod onto
-    those CRs.
+    MX_MODEL_REVISION isolates this cache's P2P source identity, which
+    ModelExpress content-addresses from the model name and revision. Two caches
+    of the same repo, neither pinning a revision, can hold different commits
+    while both engines report none, so a replica could load a peer's other
+    weights. The PVC name is stable across a cache's replicas and distinct
+    across caches and namespaces; the resolved commit would be better, but only
+    the hydration Job sees it. The cost is that identical caches can't share a
+    source.
 
-    Deliberately no HF_HUB_OFFLINE: weights load from the local PVC (a local
-    --model path never reaches HuggingFace) or via the P2P loader, so offline
-    mode guards nothing on the weight path, while forcing it would break
-    engines that fetch auxiliary files by repo id at startup (kimi-k2's gated
-    tokenizer, say). With it gone every variable here is read only by the
-    ModelExpress loader, so the bundle is genuinely inert unless the engine
-    command opts in with --load-format modelexpress - which Modelplane never
-    injects, here or anywhere: the ML team's engine command decides whether to
-    use ModelExpress's loader at all.
+    POD_* identify the publishing pod. A 0.5.0 server owns the ModelMetadata CRs
+    with them so Kubernetes garbage-collects them; the pinned 0.4.1 ignores
+    them, so a server bump is a version change rather than a code one.
     """
     ref = replica.spec.modelCacheRef
     if not ref or stack != "Dynamo":
@@ -197,9 +175,8 @@ def modelexpress_env(replica: v1alpha1.ModelReplica, stack: str) -> list[dict]:
     address = f"{_MODELEXPRESS_SERVER_SERVICE}:{_MODELEXPRESS_PORT}"
     return [
         {"name": "MX_SERVER_ADDRESS", "value": address},
-        {"name": "MODELEXPRESS_URL", "value": address},
+        {"name": "MODEL_EXPRESS_URL", "value": address},
         {"name": "MX_MODEL_REVISION", "value": cache_pvc_name(_namespace(replica.metadata), ref.name)},
-        {"name": "HF_HUB_CACHE", "value": CACHE_MOUNT_PATH},
         {"name": "MX_P2P_METADATA", "value": "1"},
         {"name": "POD_NAME", "valueFrom": {"fieldRef": {"fieldPath": "metadata.name"}}},
         {"name": "POD_UID", "valueFrom": {"fieldRef": {"fieldPath": "metadata.uid"}}},
@@ -211,8 +188,17 @@ def modelexpress_security_context(replica: v1alpha1.ModelReplica, stack: str) ->
     """IPC_LOCK, which GPUDirect RDMA needs to pin memory, or None unless the
     replica references a cache on a Dynamo cluster.
 
-    Gated the same way as modelexpress_env: only meaningful where the
-    ModelExpress P2P path is wired in.
+    Gated like modelexpress_env, but unlike that env this isn't inert. The
+    restricted Pod Security Standard permits no added capability except
+    NET_BIND_SERVICE, so a workload cluster that labels REMOTE_NAMESPACE
+    pod-security.kubernetes.io/enforce=restricted rejects every
+    cache-referencing engine on a Dynamo cluster, whether it loads through
+    ModelExpress or not. Modelplane doesn't set that label on the clusters it
+    provisions, but an Existing cluster it's pointed at might carry it.
+
+    TODO(negz): if that bites someone, narrow this to members whose pool
+    declares a fabric? An engine with no fabric can't do RDMA, so it has no use
+    for the capability.
     """
     ref = replica.spec.modelCacheRef
     if not ref or stack != "Dynamo":
@@ -264,16 +250,9 @@ def pod_metadata(member: v1alpha1.Member, labels: dict[str, str] | None = None) 
     return meta
 
 
-# Backend-neutral gang-coordination env vars Modelplane injects into every
-# engine container of a multi-node engine's gang: the leader's address, and
-# (LWS backend only - see grove_leader_address_env) the pod's rank (0 for the
-# leader, 1..worker.nodes for each follower). A member's command finds its
-# peers and its own place in the gang through these without hard-coding the
-# underlying orchestrator's variables. For the LWS backend they alias
-# LWS_LEADER_ADDRESS and LWS_WORKER_INDEX; the Grove backend aliases its own
-# GROVE_PCSG_* vars (see grove_leader_address_env). $(VAR) is Kubernetes
-# downward env expansion - the container sees the MODELPLANE_ vars resolved to
-# their values.
+# Backend-neutral aliases for the orchestrator's own gang-coordination vars, so
+# a member's command doesn't name LWS or Grove directly. Rank is LWS-only;
+# Grove has no equivalent yet (see grove_leader_address_env).
 LEADER_ADDRESS_ENV = "MODELPLANE_LEADER_ADDRESS"
 RANK_ENV = "MODELPLANE_RANK"
 _LWS_LEADER_ADDRESS_ENV = "LWS_LEADER_ADDRESS"
@@ -312,44 +291,23 @@ _GROVE_HEADLESS_SERVICE_ENV = "GROVE_HEADLESS_SERVICE"
 def grove_leader_address_env() -> dict:
     """The MODELPLANE_LEADER_ADDRESS env entry for the Grove backend.
 
-    Aliases the leader pod's stable DNS name via dependent env expansion:
-    $(GROVE_PCSG_NAME)-$(GROVE_PCSG_INDEX)-leader-0.$(GROVE_HEADLESS_SERVICE).
-    GROVE_PCSG_NAME is the PodCliqueScalingGroup's own name (shared by every
-    gang - <pcs>-0-gang - it does NOT carry the gang's replica index);
-    GROVE_PCSG_INDEX is that replica index, injected separately. Concatenated
-    they reproduce Grove's own PodClique name (owner=PCSG name,
-    ownerReplica=PCSG replica index), and the leader clique holds exactly one
-    pod (index 0), giving the leader's hostname; GROVE_HEADLESS_SERVICE is the
-    PodCliqueSet-wide subdomain every pod shares. This is what makes the
-    address vary correctly per gang once engine.copies > 1 - unlike the
-    PCS-scoped vars (GROVE_PCS_NAME/GROVE_PCS_INDEX), which are identical
-    across every gang and so can't distinguish one gang's leader from
-    another's.
+    Concatenating the PCSG name and index reproduces Grove's own PodClique name,
+    and the leader clique holds one pod, so this resolves to the leader of *this
+    gang*. The PCS-scoped vars are identical across gangs and would point every
+    engine.copies at gang 0's leader.
 
-    Requires Grove to inject its own vars *before* template env so this dependent
-    expansion can see them (grove#753, merged 2026-08-18, first released
-    v0.1.0-alpha.12-rc2 - the version this backend now pins). Earlier Grove
-    appends its vars after template env instead, so GROVE_PCSG_NAME/INDEX exist
-    on the pod but can't be referenced from here (they're defined, just not
-    yet, when $(VAR) expansion runs against this list). The same ordering
-    caveat as leader_address_env applies once Grove's vars are prepended.
+    Needs Grove to inject its vars before template env for the expansion to see
+    them (grove#753, first released in v0.1.0-alpha.12-rc2, which the serving
+    stack pins).
     """
     leader_pod = f"$({_GROVE_PCSG_NAME_ENV})-$({_GROVE_PCSG_INDEX_ENV})-{GROVE_LEADER_CLIQUE}-0"
     address = leader_pod + f".$({_GROVE_HEADLESS_SERVICE_ENV})"
     return {"name": LEADER_ADDRESS_ENV, "value": address}
 
 
-# Grove clique names for a gang engine's two cliques, and the scaling group
-# that groups them. Clique names must be unique within a PodCliqueSet and are
-# immutable, so these are fixed rather than derived from the member role. The
-# two cliques form one PodCliqueScalingGroup, so engine.copies scales the whole
-# leader+worker gang as a unit: each copy is an independent gang, with its own
-# PodClique instances - so GROVE_PCLQ_POD_INDEX (0 on the leader clique's one
-# pod, 0..N-1 on the worker clique's pods) is already gang-scoped, not shared
-# across gangs (see GroveBackend). Grove has no single vars spanning both
-# cliques as one 0..size-1 rank space yet (grove#755, open); until it does,
-# only the leader address is backend-neutral (grove_leader_address_env), not
-# the rank.
+# Clique names are immutable and must be unique within a PodCliqueSet, so they're
+# fixed rather than derived from the member role. Both cliques sit in one scaling
+# group, so engine.copies scales the leader+worker pair as a unit.
 GROVE_LEADER_CLIQUE = "leader"
 GROVE_WORKER_CLIQUE = "worker"
 GROVE_PCSG = "gang"
@@ -434,15 +392,11 @@ AVAILABLE_CEL = (
     'has(object.status.conditions) && object.status.conditions.exists(c, c.type == "Available" && c.status == "True")'
 )
 
-# CEL readiness query for a Grove PodCliqueSet. Grove publishes no Ready or
-# Available condition on the PodCliqueSet itself - its only condition type is
-# TopologyLevelsUnavailable, which we don't use - so readiness has to be
-# derived from its replica counters instead. A PodCliqueSet is available when
-# every one of its replicas has all standalone cliques and scaling groups
-# above their minAvailable threshold, which Grove rolls up into
-# status.availableReplicas; observedGeneration guards against reading a count
-# left over from before the last spec change. status.podGangStatuses looks
-# like it would be useful here but Grove never populates it.
+# Grove publishes no Ready or Available condition on a PodCliqueSet, so
+# readiness comes from its replica counters: a replica counts as available once
+# every clique and scaling group is at or above minAvailable. observedGeneration
+# guards against a count left over from before the last spec change.
+# status.podGangStatuses looks useful here but Grove never populates it.
 GROVE_AVAILABLE_CEL = (
     "has(object.status) && has(object.status.observedGeneration) && "
     "object.status.observedGeneration == object.metadata.generation && "
@@ -535,20 +489,18 @@ def engine_name(replica: v1alpha1.ModelReplica, engine: v1alpha1.Engine) -> str:
     Every engine's resources are qualified by the engine name: per-replica so
     co-located replicas of one deployment don't collide on the remote cluster,
     and per-engine so a multi-engine replica's workloads don't collide with each
-    other. Used for the native Deployment; a Grove gang uses grove_pcs_name
-    instead, which budgets for Grove's own name-length validation.
+    other. Names the native Deployment and the llm-d LeaderWorkerSet; a Grove
+    gang uses grove_pcs_name instead, which budgets for Grove's own name-length
+    validation.
     """
     return resource.child_name(_name(replica.metadata), engine.name)
 
 
-# Grove validates a *combined* resource name of at most 45 characters. This
-# backend nests both cliques in a PodCliqueScalingGroup, so Grove names a gang's
-# pod <pcs>-<pcsReplica>-<scalingGroup>-<sgReplica>-<clique>-<podIndex>, and the
-# whole thing must fit. Reserve room for that suffix at its longest -
-# "-0-gang-63-worker-99" is 20 characters (a single PCS replica, up to 64
-# scaling-group copies and worker pods at two digits, and the longer "worker"
-# clique) - leaving this much for the PodCliqueSet name itself. That's tighter
-# than the 63-character DNS label budget engine_name() otherwise uses.
+# Grove rejects a PodCliqueSet whose resource names sum past 45 characters:
+# len(pcs) + len(pcsg) + len(pclq). With "gang" and "worker" that leaves 35 for
+# the PodCliqueSet name. This reserves more than it has to, since the composed
+# pod name carries replica indices and Grove's own random suffix on top, and
+# it's tighter than the 63-character DNS label budget engine_name() uses.
 _GROVE_PCS_NAME_MAX = 24
 
 

@@ -25,8 +25,18 @@ carries the `repo` to fetch, an optional `revision` (branch, tag, or commit), an
 model, since a value below the model's size leaves no room to stage the weights.
 `HuggingFace` is the only source today.
 
-The cache mounts at `/mnt/models` on every consuming pod, so the engine's args
-reference that path (`--model=/mnt/models` for vLLM) rather than the source.
+The engine's args name the model the same way with or without a cache. A
+`HuggingFace` source stages into HuggingFace's own cache layout on the mount, and
+Modelplane sets `HF_HUB_CACHE` on every consuming pod, so `--model=<repo>`
+resolves to the staged weights instead of pulling them. Adding or removing a
+cache doesn't change the engine command. Modelplane never injects `--model`
+itself: naming the model belongs to the engine command, like every other flag.
+
+Name the same `revision` the cache staged. A bare repository ID resolves at the
+default branch, which finds a cache staged without a `revision` or with
+`revision: main`. A cache pinned to a commit or tag needs the engine to pass that
+revision too (`--revision` for vLLM). An engine that asks for the default branch
+finds nothing staged under it, and downloads the model a second time.
 
 ## Authenticating
 
@@ -82,7 +92,7 @@ minutes for a large model), tuned further with `--model-loader-extra-config`:
 
 ```yaml {nocopy=true}
 args:
-- --model=/mnt/models
+- --model=RedHatAI/Kimi-K2-Instruct-quantized.w4a16
 - --load-format=runai_streamer
 - --model-loader-extra-config={"concurrency":16,"distributed":true}
 ```
@@ -94,15 +104,17 @@ end.
 
 ## Accelerating with ModelExpress
 
-A cache's weights always live on its own PVC, portable across every cluster. On
-a [Dynamo]({{< ref "/platform/inference-cluster.md" >}}) cluster the serving
-stack also runs a [ModelExpress](https://github.com/ai-dynamo/modelexpress)
-server, and Modelplane injects ModelExpress env into every engine pod that
-references a cache. An engine opts in with `--load-format modelexpress`, loading
-the first replica from its PVC seed and every later one from a peer over RDMA
-instead of reading storage again. The env is inert unless the engine opts in, so
-a cache still works unchanged on a Standard cluster and a deployment is portable
-between the two.
+A cache's weights always live on its own PVC, portable across every cluster. On a
+Dynamo cluster (`InferenceCluster.spec.stack: Dynamo`) the serving stack also
+runs a [ModelExpress](https://github.com/ai-dynamo/modelexpress) server, and
+Modelplane injects ModelExpress env into every engine pod that references a
+cache. An engine opts in with `--load-format modelexpress`: the first replica
+loads from its PVC seed and publishes itself as a source, and later replicas pull
+from a peer over RDMA rather than reading storage again. A replica that finds no
+compatible peer, or no fabric to reach one over, falls back to the PVC, so the
+cache still has to be sized and kept for every replica. The env is inert unless
+the engine opts in, so a cache still works unchanged on a Standard cluster and a
+deployment is portable between the two.
 
 Modelplane injects no `--load-format` flag: the ML team's engine command decides
 whether to use ModelExpress's loader, the same as it decides
@@ -113,7 +125,7 @@ command: ["/bin/sh", "-c"]
 args:
 - >-
   pip install --index-url https://pypi.nvidia.com modelexpress &&
-  exec vllm serve /mnt/models --load-format modelexpress
+  exec vllm serve Qwen/Qwen2.5-7B-Instruct --load-format modelexpress
 ```
 
 ## Storage prerequisites

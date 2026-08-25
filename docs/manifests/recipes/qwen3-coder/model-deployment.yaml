@@ -69,7 +69,7 @@ spec:
                 - /bin/sh
                 - -c
                 - >-
-                  exec vllm serve /mnt/models
+                  exec vllm serve Qwen/Qwen3-Coder-480B-A35B-Instruct
                   --served-model-name=qwen3-coder
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2
@@ -110,7 +110,7 @@ spec:
                 - /bin/sh
                 - -c
                 - >-
-                  exec vllm serve /mnt/models
+                  exec vllm serve Qwen/Qwen3-Coder-480B-A35B-Instruct
                   --served-model-name=qwen3-coder
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2

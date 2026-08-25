@@ -129,9 +129,10 @@ By default Modelplane composes the gang into a LeaderWorkerSet; a cluster can op
 into Grove + KAI Scheduler for gang scheduling via
 `InferenceCluster.spec.stack: Dynamo`. You write the coordination (like
 Ray or vLLM's data-parallel coordinator) in the engine flags, referencing the
-leader's address the stack exposes: `MODELPLANE_LEADER_ADDRESS` under Standard,
-or Grove's own pod environment under Dynamo. Multi-node deployments stage weights
-through a `ModelCache`.
+leader's address through `MODELPLANE_LEADER_ADDRESS`, which resolves on either
+stack. The pod's rank is `MODELPLANE_RANK` under Standard; under Dynamo the
+command derives it from Grove's own `GROVE_PCLQ_POD_INDEX`. Multi-node
+deployments stage weights through a `ModelCache`.
 {{< /qa >}}
 
 {{< qa "What about disaggregated prefill/decode?" >}}

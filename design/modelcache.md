@@ -30,11 +30,14 @@ spec:
     sizeGiB: 1500
 ```
 
-The cache is mounted at `/mnt/models` on every consuming pod; the engine
-container's model arg should reference this path. The path is fixed rather
-than configurable to keep Modelplane out of engine-specific arg rewriting —
-different engines take different flags (e.g. `--model=` for vLLM,
-`--model-path=` for SGLang) and users pass whatever their engine expects.
+The cache is mounted at `/mnt/models` on every consuming pod, staged in the
+layout its source uses — for HuggingFace, HuggingFace's own cache layout.
+Modelplane points the engine's `HF_HUB_CACHE` at the mount, so the engine's model
+arg names the model exactly as it would without a cache (`--model=<repo>`) and
+resolves to the staged weights. The path is fixed rather than configurable, and
+Modelplane never rewrites the model arg: different engines take different flags
+(e.g. `--model=` for vLLM, `--model-path=` for SGLang) and users pass whatever
+their engine expects.
 
 `spec.source` is a required discriminator: an enum naming the source kind, with
 the matching source object set alongside it (e.g. `source: HuggingFace` selects

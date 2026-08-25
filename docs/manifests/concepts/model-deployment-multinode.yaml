@@ -26,8 +26,10 @@
 # example's --node-rank=$(MODELPLANE_RANK) with that expression on Dynamo.
 #
 # Multi-node engines require a ModelCache: every pod in the gang mounts it at
-# /mnt/models. When a member brings its own command, Modelplane does not inject
-# --model, so the leader points the engine at the mount explicitly.
+# /mnt/models, staged in HuggingFace's cache layout. Both members name the model
+# by its repo id, exactly as they would without a cache - Modelplane points
+# HuggingFace at the mount, so the repo id resolves to the pre-staged weights
+# instead of being pulled.
 #
 # This shape (vLLM's native multiprocessing backend, TP within a node and PP
 # across nodes) is the one validated serving Qwen3-Coder-480B; see
@@ -63,7 +65,7 @@ spec:
                 - /bin/sh
                 - -c
                 - >-
-                  exec vllm serve /mnt/models
+                  exec vllm serve Qwen/Qwen3-Coder-480B-A35B-Instruct
                   --served-model-name=qwen3-coder
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2
@@ -91,7 +93,7 @@ spec:
                 - /bin/sh
                 - -c
                 - >-
-                  exec vllm serve /mnt/models
+                  exec vllm serve Qwen/Qwen3-Coder-480B-A35B-Instruct
                   --served-model-name=qwen3-coder
                   --tensor-parallel-size=8
                   --pipeline-parallel-size=2

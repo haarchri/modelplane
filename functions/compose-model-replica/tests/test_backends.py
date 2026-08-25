@@ -307,7 +307,9 @@ def _pcs(leader_container: dict, worker_container: dict, *, worker_replicas: int
                         "name": "gang",
                         "cliqueNames": ["leader", "worker"],
                         "replicas": copies,
-                        "minAvailable": copies,
+                        # 1 regardless of copies, so a wedged gang doesn't take
+                        # the healthy ones down with it.
+                        "minAvailable": 1,
                     }
                 ],
             },
@@ -409,9 +411,18 @@ class TestBackendManifests(unittest.TestCase):
         replica = _replica(engines=[engine])
         out = grove.GroveBackend().build(replica, engine, _PC, base.serving_label(replica), "Dynamo")
         manifest = out["model-serving-main"].spec.forProvider.manifest
+        # Spelled out rather than compared against grove_leader_address_env(),
+        # which would pass whatever that function returned. The PCSG vars are
+        # what make the address vary per gang; the PCS-scoped ones are
+        # identical across gangs and would silently point every copy at gang
+        # 0's leader.
+        want = {
+            "name": "MODELPLANE_LEADER_ADDRESS",
+            "value": "$(GROVE_PCSG_NAME)-$(GROVE_PCSG_INDEX)-leader-0.$(GROVE_HEADLESS_SERVICE)",
+        }
         for clique_name in ("leader", "worker"):
             container = _clique(manifest, clique_name)["spec"]["podSpec"]["containers"][0]
-            self.assertEqual(container["env"], [base.grove_leader_address_env()])
+            self.assertEqual(container["env"], [want])
 
     def test_user_env_passed_through(self) -> None:
         # A member's own env passes through verbatim, after the leader-address
@@ -687,7 +698,9 @@ class TestLLMDBackend(unittest.TestCase):
         for tmpl in (lwt["leaderTemplate"], lwt["workerTemplate"]):
             container = tmpl["spec"]["containers"][0]
             env_names = [e["name"] for e in container["env"]]
-            self.assertEqual(env_names, ["MODELPLANE_LEADER_ADDRESS", "MODELPLANE_RANK"])
+            # HF_HUB_CACHE is the cache's own env (every stack); the MX bundle
+            # is not.
+            self.assertEqual(env_names, ["MODELPLANE_LEADER_ADDRESS", "MODELPLANE_RANK", "HF_HUB_CACHE"])
             self.assertNotIn("MX_SERVER_ADDRESS", env_names)
             self.assertNotIn("securityContext", container)
 
@@ -743,28 +756,24 @@ class TestCacheMounts(unittest.TestCase):
         )
         self.assertEqual(mounts, [{"name": "model-cache", "mountPath": "/mnt/models"}])
 
-    def test_apply_cache_injects_model_when_absent(self) -> None:
-        r = self._replica(cache="qwen")
-        args = base.apply_cache_args(["--trust-remote-code"], r, self._engine(r))
-        self.assertIn("--model=/mnt/models", args)
+    def test_cache_env_points_huggingface_at_the_mount(self) -> None:
+        # The cache is staged in HuggingFace's cache layout, so pointing
+        # HF_HUB_CACHE at the mount is what lets an engine's own --model=<repo>
+        # resolve against it instead of pulling from HuggingFace (#407).
+        self.assertEqual(
+            base.cache_env(self._replica(cache="qwen")),
+            [{"name": "HF_HUB_CACHE", "value": "/mnt/models"}],
+        )
 
-    def test_apply_cache_respects_user_model(self) -> None:
-        r = self._replica(cache="qwen", args=["--model=/mnt/models"])
-        args = base.apply_cache_args(["--model=/mnt/models"], r, self._engine(r))
-        self.assertEqual(args.count("--model=/mnt/models"), 1)
+    def test_cache_env_empty_without_cache(self) -> None:
+        self.assertEqual(base.cache_env(self._replica()), [])
 
-    def test_apply_cache_noop_without_cache(self) -> None:
-        r = self._replica()
-        args = base.apply_cache_args(["--trust-remote-code"], r, self._engine(r))
-        self.assertEqual(args, ["--trust-remote-code"])
-
-    def test_apply_cache_skips_when_engine_has_command(self) -> None:
-        # Non-vLLM engine (e.g. SGLang) owns its args via a command and uses
-        # --model-path, not --model: we must not inject --model.
-        r = self._replica(cache="qwen", args=["--model-path=/mnt/models"], command=["/bin/sh", "-c", "..."])
-        args = base.apply_cache_args(["--model-path=/mnt/models"], r, self._engine(r))
-        self.assertNotIn("--model=/mnt/models", args)
-        self.assertEqual(args, ["--model-path=/mnt/models"])
+    def test_cache_env_sets_no_offline_flag(self) -> None:
+        # HF_HUB_OFFLINE would break an engine that fetches a *different* repo
+        # at startup (kimi-k2's separately-gated tokenizer), and resolution
+        # doesn't need it.
+        names = {e["name"] for e in base.cache_env(self._replica(cache="qwen"))}
+        self.assertNotIn("HF_HUB_OFFLINE", names)
 
 
 class TestNativeBackendCache(unittest.TestCase):
@@ -779,7 +788,10 @@ class TestNativeBackendCache(unittest.TestCase):
             ),
         )
 
-    def test_mounts_pvc_and_injects_model(self) -> None:
+    def test_mounts_pvc_and_sets_cache_env(self) -> None:
+        # A cache contributes a volume, a mount, and the HF_HUB_CACHE that makes
+        # the engine's own --model=<repo> resolve against it. Modelplane injects
+        # no --model of its own: naming the model is the command's job.
         replica = self._replica()
         out = native.NativeBackend().build(
             replica, replica.spec.engines[0], _PC, base.serving_label(replica), "Standard"
@@ -790,7 +802,23 @@ class TestNativeBackendCache(unittest.TestCase):
         self.assertIn("model-cache", vol_names)
         container = pod["containers"][0]
         self.assertIn({"name": "model-cache", "mountPath": "/mnt/models"}, container["volumeMounts"])
-        self.assertIn("--model=/mnt/models", container["args"])
+        self.assertIn({"name": "HF_HUB_CACHE", "value": "/mnt/models"}, container["env"])
+        self.assertEqual(container["args"], [])
+
+    def test_user_env_comes_after_cache_env(self) -> None:
+        # Kubernetes expands $(VAR) left to right, so Modelplane's own entries
+        # must precede the user's for a user entry to reference them.
+        replica = self._replica()
+        engine = replica.spec.engines[0]
+        spec = engine.members[0].template.spec
+        assert spec is not None
+        spec.containers[0].env = [v1alpha1.EnvItem(name="HF_TOKEN", value="x")]
+        out = native.NativeBackend().build(replica, engine, _PC, base.serving_label(replica), "Standard")
+        container = out["model-serving-main"].spec.forProvider.manifest["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(
+            container["env"],
+            [{"name": "HF_HUB_CACHE", "value": "/mnt/models"}, {"name": "HF_TOKEN", "value": "x"}],
+        )
 
 
 class TestGroveBackendCache(unittest.TestCase):
@@ -832,17 +860,19 @@ class TestGroveBackendCache(unittest.TestCase):
                 pod["containers"][0]["volumeMounts"],
             )
 
-    def test_injects_model_into_leader_args_for_vllm(self) -> None:
-        # The leader has no command and no --model arg, so the cache --model is
-        # injected into its args.
+    def test_sets_cache_env_on_every_clique_and_injects_no_model(self) -> None:
+        # A cache gives both cliques HF_HUB_CACHE so their own --model=<repo>
+        # resolves against the mount; Modelplane adds no --model itself.
         replica = self._replica(leader_args=[], worker_command=["/bin/sh", "-c", "join"])
         manifest = (
             grove.GroveBackend()
             .build(replica, replica.spec.engines[0], _PC, base.serving_label(replica), "Dynamo")["model-serving-main"]
             .spec.forProvider.manifest
         )
-        leader_args = _clique(manifest, "leader")["spec"]["podSpec"]["containers"][0]["args"]
-        self.assertIn("--model=/mnt/models", leader_args)
+        for clique_name in ("leader", "worker"):
+            container = _clique(manifest, clique_name)["spec"]["podSpec"]["containers"][0]
+            self.assertIn({"name": "HF_HUB_CACHE", "value": "/mnt/models"}, container["env"])
+            self.assertNotIn("--model=/mnt/models", container.get("args", []))
 
     def test_command_engine_mounts_cache_without_injecting_model(self) -> None:
         # A member with its own command keeps it verbatim and gets no injected
@@ -1167,24 +1197,30 @@ class TestUnifiedRouting(unittest.TestCase):
 
 class TestModelExpressEnv(unittest.TestCase):
     """On a Dynamo cluster the native (Standalone) and Grove (Leader/Worker)
-    backends inject the ModelExpress P2P env (MX_SERVER_ADDRESS/MODELEXPRESS_URL/
-    MX_MODEL_REVISION/HF_HUB_CACHE/MX_P2P_METADATA/POD_*) and the IPC_LOCK security
-    context into every engine container of a replica that references a cache. The
-    env is inert unless the engine command opts in with --load-format
-    modelexpress. It's gated on the cluster's Dynamo stack: on Standard neither
-    backend injects it (the portable engine command falls back), and the llm-d
-    backend never does."""
+    backends inject the ModelExpress P2P env (MX_SERVER_ADDRESS/MODEL_EXPRESS_URL/
+    MX_MODEL_REVISION/MX_P2P_METADATA/POD_*) and the IPC_LOCK security context
+    into every engine container of a replica that references a cache. The env is
+    inert unless the engine command opts in with --load-format modelexpress. It's
+    gated on the cluster's Dynamo stack: on Standard neither backend injects it
+    (the portable engine command falls back), and the llm-d backend never does.
+
+    HF_HUB_CACHE is deliberately NOT in this set: it's the cache's own env, on
+    every stack (see base.cache_env), and ModelExpress reads it only as a
+    fallback for its cache root. Keeping it out here is what makes these
+    assertions fail if it ever leaks back into modelexpress_env as a duplicate."""
 
     _MODELEXPRESS_ENV_NAMES: ClassVar[set[str]] = {
         "MX_SERVER_ADDRESS",
-        "MODELEXPRESS_URL",
+        "MODEL_EXPRESS_URL",
         "MX_MODEL_REVISION",
-        "HF_HUB_CACHE",
         "MX_P2P_METADATA",
         "POD_NAME",
         "POD_UID",
         "POD_NAMESPACE",
     }
+    # What a cache-referencing engine carries on Dynamo: the cache's env plus
+    # the MX bundle, and nothing else.
+    _CACHE_ENV_NAME: ClassVar[str] = "HF_HUB_CACHE"
 
     def _replica(self, *, cache: bool = True, engines: list[v1alpha1.Engine] | None = None) -> v1alpha1.ModelReplica:
         engines = engines if engines is not None else [_standalone_engine(args=[])]
@@ -1203,8 +1239,8 @@ class TestModelExpressEnv(unittest.TestCase):
         out = grove.GroveBackend().build(replica, engine, _PC, base.serving_label(replica), "Dynamo")
         manifest = out["model-serving-main"].spec.forProvider.manifest
         # Grove also gets the leader-address alias, unconditional on a cache,
-        # ahead of the ModelExpress bundle.
-        want_env_names = self._MODELEXPRESS_ENV_NAMES | {base.LEADER_ADDRESS_ENV}
+        # ahead of the cache env and the ModelExpress bundle.
+        want_env_names = self._MODELEXPRESS_ENV_NAMES | {base.LEADER_ADDRESS_ENV, self._CACHE_ENV_NAME}
         for clique_name in ("leader", "worker"):
             container = _clique(manifest, clique_name)["spec"]["podSpec"]["containers"][0]
             env_names = {e["name"] for e in container["env"]}
@@ -1213,7 +1249,7 @@ class TestModelExpressEnv(unittest.TestCase):
             server_env = next(e for e in container["env"] if e["name"] == "MX_SERVER_ADDRESS")
             # The per-cluster shared server's well-known Service.
             self.assertEqual(server_env["value"], "modelexpress-server:8001")
-            mxurl_env = next(e for e in container["env"] if e["name"] == "MODELEXPRESS_URL")
+            mxurl_env = next(e for e in container["env"] if e["name"] == "MODEL_EXPRESS_URL")
             self.assertEqual(mxurl_env["value"], server_env["value"])
             self.assertEqual(container["securityContext"], {"capabilities": {"add": ["IPC_LOCK"]}})
 
@@ -1237,7 +1273,7 @@ class TestModelExpressEnv(unittest.TestCase):
         out = native.NativeBackend().build(replica, replica.spec.engines[0], _PC, base.serving_label(replica), "Dynamo")
         container = out["model-serving-main"].spec.forProvider.manifest["spec"]["template"]["spec"]["containers"][0]
         env = {e["name"]: e for e in container["env"]}
-        self.assertEqual(set(env), self._MODELEXPRESS_ENV_NAMES)
+        self.assertEqual(set(env), self._MODELEXPRESS_ENV_NAMES | {self._CACHE_ENV_NAME})
         self.assertEqual(env["MX_SERVER_ADDRESS"]["value"], "modelexpress-server:8001")
         self.assertEqual(env["MX_P2P_METADATA"]["value"], "1")
         self.assertEqual(env["HF_HUB_CACHE"]["value"], "/mnt/models")
@@ -1257,16 +1293,16 @@ class TestModelExpressEnv(unittest.TestCase):
     def test_native_engine_gets_no_modelexpress_env_on_standard(self) -> None:
         # The same cached Standalone engine on a Standard cluster gets no
         # ModelExpress env and no security context: the portable engine command
-        # falls back. It still gets the turnkey vLLM --model injection.
+        # falls back. It keeps the cache's own HF_HUB_CACHE, which is not part
+        # of the ModelExpress bundle and applies on every stack.
         replica = self._replica()
         out = native.NativeBackend().build(
             replica, replica.spec.engines[0], _PC, base.serving_label(replica), "Standard"
         )
         container = out["model-serving-main"].spec.forProvider.manifest["spec"]["template"]["spec"]["containers"][0]
-        self.assertNotIn("env", container)
+        self.assertEqual(container["env"], [{"name": "HF_HUB_CACHE", "value": "/mnt/models"}])
         self.assertNotIn("securityContext", container)
-        # A turnkey vLLM engine still gets the --model injection.
-        self.assertEqual(container["args"], ["--model=/mnt/models"])
+        self.assertEqual(container["args"], [])
 
 
 class TestKvBlockSize(unittest.TestCase):
