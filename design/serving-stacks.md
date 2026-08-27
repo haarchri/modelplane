@@ -1,135 +1,127 @@
-# Bringing Dynamo to Modelplane — a proposal
+# Serving stacks: Standard and Dynamo
 
-Modelplane is an open source control plane for AI inference. You install it in
-your own environment, and it operates your GPU clusters — across cloud, neocloud,
-and on-premise — as one inference fleet: provisioning clusters, scheduling
-deployments, scaling replicas, caching weights, and routing through a single
-OpenAI-compatible endpoint. Built on Crossplane, it continuously
-reconciles that fleet toward the state you declare, and runs any model on any
-engine on any infrastructure, from a single GPU to disaggregated, multi-node
-serving. Platform teams declare the fleet as `InferenceClusters`; developers
-declare a `ModelDeployment` — a model's engines (vLLM, SGLang, TRT-LLM) laid out
-across GPUs and nodes, plus a replica count. Today Modelplane composes that
-serving layer from Kubernetes and Gateway API primitives.
+**Status:** Accepted
+**Date:** August 2026
+**Author:** Nic Cope
+**Issue:** [#111](https://github.com/modelplaneai/modelplane/issues/111)
 
-Modelplane orchestrates the inference ecosystem rather than replacing it — the
-models, the engines that serve them, and the infrastructure underneath. It
-composes and operates a serving layer across the whole fleet, but it isn't a
-serving layer itself. Dynamo is. The two work at different layers: Modelplane
-places, scales, caches, and fronts a model across clusters and clouds, while a
-serving stack owns what happens inside a single cluster — turning a stock engine
-into a routable serving instance. We want that stack to be Dynamo.
-This document proposes how, and what we'd need from the Dynamo team to get there.
+## Summary
 
-The proposal is phased, because we think we can start delivering value on both
-sides now rather than waiting on a single large integration:
+Modelplane composes and operates a serving layer across a fleet, but it isn't a
+serving layer itself. Modelplane places, scales, caches, and fronts a model
+across clusters and clouds. A serving stack owns what happens inside one
+cluster, turning a stock engine into a routable serving instance. I propose we
+add support for NVIDIA Dynamo as a serving stack.
+
+The proposal is phased, so we deliver value now rather than waiting on one large
+integration:
 
 1. **Now — à la carte.** A platform team opts a cluster into a `Dynamo` serving
    stack, and Modelplane drives stock engines with Dynamo's standalone
    components: Grove + kai-scheduler for multi-node placement, ModelExpress for
    weight distribution. No change to the ML-facing API.
-2. **In parallel — the asks.** Dynamo delivers two features (one already on the
-   roadmap) that let a `ModelDeployment` land on a full `DynamoGraphDeployment`
-   (DGD) without changing that API or what the engine runs.
+2. **In parallel — the gaps.** Two changes Dynamo already has in flight let a
+   `ModelDeployment` land on a full `DynamoGraphDeployment` (DGD) without
+   changing that API or what the engine runs.
 3. **Then — the DGD.** The same `Dynamo` cluster opt-in graduates to composing
    full DGDs, so Modelplane's users get Dynamo's frontend and routing while the
    API they write stays exactly what it is today.
 
-One field on the cluster (`spec.stack: Dynamo`), one backend that evolves
-underneath it.
+## Background
 
-## 1. Why Dynamo in Modelplane
-
-Each of the following closes a gap in what Modelplane can do today.
-
-**Topology-aware placement and multi-role startup ordering.** A model sharded
-across many GPUs and nodes is where placement against the interconnect (NVLink
-domain → rack → zone) decides throughput. Modelplane has no model of that
-hierarchy today, and can't gang-schedule a multi-node job, so a large deployment
-can land split across domains or stall half-placed. Grove and kai-scheduler give
-us topology-aware, all-or-nothing placement — plus the cross-role startup
-ordering some engines need.
+**Topology-aware placement and multi-role startup ordering.** Where a model's
+shards land relative to the interconnect (NVLink domain → rack → zone) sets the
+throughput it can reach. Modelplane has no model of that hierarchy today and
+doesn't gang-schedule, so a large deployment can land split across domains or
+stall half-placed. Grove and kai-scheduler offer topology-aware, all-or-nothing
+placement.
 
 **Faster cold starts (ModelExpress).** When Modelplane scales a deployment up,
-each new replica loads its weights from storage — the slowest part of coming
-online, and a source of contention when many replicas start at once. ModelExpress
-lets a scaling-up replica skip that read entirely.
+each new replica loads its weights from storage. This is the slowest part of
+coming online, and a source of contention when many replicas start at once.
+ModelExpress lets a scaling-up replica skip that read entirely.
 
 **Checkpoint/restore cold starts (Snapshot).** Bringing an engine online means
 building the CUDA context, compiling kernels, and loading weights before it can
-serve — time Modelplane pays on every scale-up. Snapshot restores a checkpoint of
-a fully initialized worker instead, cutting that startup to a restore.
+serve. Snapshot restores a checkpoint of a fully initialized worker instead,
+cutting that startup to a restore.
 
 **GPU-memory sharing and failover (GMS).** Modelplane has no fast-recovery story
-today: when an engine crashes, its replacement reloads weights from disk. GMS
+today. When an engine crashes, its replacement reloads weights from disk. GMS
 keeps a model's weights resident so a restarting or standby engine re-attaches
-instead of reloading — the basis for active-passive failover, which Modelplane
-can't offer today.
+instead of reloading.
 
 **Mid-stream request migration.** Today, if a worker dies mid-generation, the
 best Modelplane can do is retry the whole request, and a long in-flight
 generation is lost. Dynamo's frontend replays the delivered tokens to a new
-worker and continues the stream — valuable for longer-context and agentic
-workloads.
+worker and continues the stream.
 
 Topology-aware placement and ModelExpress work against a stock, unmodified
-engine, so Modelplane can adopt them immediately (§3). Mid-stream migration
-needs Dynamo's frontend-and-wrapped-engine architecture — for us, a composed DGD
-(§2). GMS and Snapshot could too, but we'd rather get them from a DGD than
-rebuild their supporting machinery ourselves (§3).
+engine, so Modelplane can adopt them without waiting for the DGD. Mid-stream
+migration needs Dynamo's frontend-and-wrapped-engine architecture, which for us
+means a composed DGD. GMS and Snapshot could work à la carte too, but we'd
+rather get them from a DGD than rebuild their supporting machinery ourselves.
 
-## 2. Desired end goal: Modelplane's API unchanged, powered by a DGD
+### Why now
 
-A platform team turns on the Dynamo stack for a cluster, and every
-`ModelDeployment` scheduled there runs on a `DynamoGraphDeployment` Modelplane
-composes — Dynamo's frontend, KV-aware router, disaggregated prefill/decode, and
-mid-stream migration included. Choosing Dynamo is a deliberate, first-class
-decision at the cluster level. The developer's side of the API stays constant.
+Modelplane ran two serving stacks once.
+[#15](https://github.com/modelplaneai/modelplane/pull/15) added Dynamo alongside
+the KServe stack it already had, installing Dynamo's operator, etcd, and NATS and
+composing a DynamoGraphDeployment.
+[#44](https://github.com/modelplaneai/modelplane/pull/44) removed it a month
+later, and [design.md](./design.md) records why under Multiple inference
+orchestrators: a model's serving profile named the stack it wanted, so the API
+could only hold what both supported, and that surface shrinks with each stack
+added. [#99](https://github.com/modelplaneai/modelplane/pull/99) then dropped
+KServe too, leaving Modelplane to compose the serving layer itself, the stack
+this proposal calls Standard.
 
-An ML developer writes a `ModelDeployment` with `Standalone`/`Leader`/`Worker`
-engines and their own engine commands. On a Dynamo cluster they write exactly
-that and it runs on Dynamo — no Dynamo-specific manifest, no reworked engine.
-That gives a fleet one portable API across every stack it runs, and turning a
-cluster over to Dynamo costs a developer nothing to learn. It's the same
-native-engine experience Dynamo is already pursuing with the sidecar (§4).
+What's changed since is the shape of the API. [Unopinionated
+ModelDeployments](./unopinionated-deployments.md) stopped describing a stack's
+configuration and started describing an engine: `Standalone`, or a `Leader` and a
+`Worker`, each with a command Modelplane passes through untouched. A
+`ModelDeployment` names no stack, and Modelplane derives no engine flags from it.
 
-### The property we want to keep
+That turns the question around. Instead of asking what every stack has in common,
+we ask whether a given one can run what a `ModelDeployment` already describes:
+two pod specs, two commands, and a way for a worker to find its leader. Grove and
+kai-scheduler can, which is why the first phase needs no API change. A DGD can't
+today, though the two additions below would be enough. KServe couldn't without
+changing a good deal about KServe.
 
-Modelplane's `ModelDeployment` describes a topology as a configuration of
-engines. The contract reduces to one thing: **the engine is opaque** to
-Modelplane. The user writes one container named `engine` with its `image`,
-`command`, and `args`, and what they write is what runs. We inject no engine
-flags — no `--nnodes`, no `--node-rank`, no `--tensor-parallel-size`. The user
-owns all of it.
+## Goals
 
-This is why a new engine, or a new parallelism strategy, ships tomorrow and just
-works: we never learn its flags, so we never need a release to support them. A
-multi-node gang is a distinct `Leader` member and `Worker` member, each with its
-own `command`, and the asymmetry between running the head and joining it lives
-in the two commands the user writes — not in anything Modelplane derives.
+**Give Modelplane users Dynamo capabilities.** Topology-aware gang scheduling
+and faster cold starts now; failover, checkpoint restore, and mid-stream
+migration as they follow. Adopting a serving stack that has them beats building
+each one ourselves.
 
-The DGD as it stands today can't preserve that property, for the reasons in §4.
-Closing that gap — with two Dynamo features, one already planned — is what lets
-Modelplane compose a DGD behind an unchanged developer API.
+**No ML-facing API change.** A `ModelDeployment` reads the same whichever stack
+it lands on. That gives a fleet one portable API, and turning a cluster over to
+Dynamo costs a developer nothing to learn.
 
-## 3. First step: à la carte on an opt-in Dynamo cluster
+**Keep the engine opaque.** The user writes one container named `engine` with
+its `image`, `command`, and `args`, and what they write is what runs. We inject
+no engine flags.
 
-We don't have to wait for the DGD to start. Most of Dynamo's near-term advantage
-for us — topology-aware placement and ModelExpress — comes from projects that
-work against a stock engine: [Grove](https://github.com/ai-dynamo/grove) and
-[kai-scheduler](https://github.com/NVIDIA/KAI-Scheduler) for gang scheduling, and
-[ModelExpress](https://github.com/ai-dynamo/modelexpress) for weight streaming.
-Modelplane can adopt these under the model it already has, keeping the
-`Standalone`/`Leader`/`Worker` engines it composes and the entire ML-facing API.
+**Choose per cluster.** A fleet stands up Dynamo clusters and shifts deployments
+onto them one at a time.
+
+## Proposal
+
+[Grove](https://github.com/ai-dynamo/grove) and
+[kai-scheduler](https://github.com/NVIDIA/KAI-Scheduler) gang-schedule multi-node
+engines, and [ModelExpress](https://github.com/ai-dynamo/modelexpress) streams
+weights between them. All three work against a stock engine, so Modelplane can
+adopt them under the model it already has.
 
 ### The cluster opt-in
 
 A cluster runs one serving stack, set on its `InferenceCluster`: `Standard`
 (today's Modelplane-composed stack) or `Dynamo`, which turns on the à la carte
-components below now and the composed DGD from §2 as it lands. Because the choice
-is per-cluster, a fleet can take on Dynamo incrementally — standing up Dynamo
-clusters and shifting deployments onto them cluster by cluster — rather than all
-at once.
+components below now and the composed DGD as it lands. Because the choice is
+per-cluster, a fleet can take on Dynamo incrementally, standing up Dynamo
+clusters and shifting deployments onto them cluster by cluster.
 
 ```yaml
 apiVersion: modelplane.ai/v1alpha1
@@ -140,14 +132,12 @@ spec:
   # The serving stack this cluster runs — the layer that plumbs a stock engine
   # into a routable serving instance. One per cluster:
   #
-  #   Standard — Modelplane composes the workload itself (a Deployment or a
-  #     LeaderWorkerSet) and fronts it with Gateway API + an endpoint picker.
+  #   Standard — Modelplane composes a Deployment or a LeaderWorkerSet and
+  #     fronts it with Gateway API + an endpoint picker.
   #   Dynamo   — Modelplane uses Dynamo's components: Grove + kai-scheduler for
   #     multi-node, ModelExpress for weight distribution (and, as it lands, a
   #     composed DGD). Installs the Dynamo platform (operator + NATS + Grove +
   #     kai-scheduler).
-  #
-  # One per cluster, so a fleet can take on Dynamo cluster by cluster.
   stack: Dynamo
   cluster:
     source: EKS
@@ -160,36 +150,43 @@ spec:
 
 ### Grove and kai-scheduler
 
-On a Dynamo cluster, Grove and kai-scheduler are the multi-node backend, with no
-`ModelDeployment` change. A `Standalone` engine stays a Deployment; a
-`Leader`+`Worker` gang becomes a Grove `PodCliqueSet` with a leader clique and a
-worker clique, each carrying its own command, gang-scheduled by kai.
-`compose-model-replica` composes the `PodCliqueSet` in place of the
-LeaderWorkerSet and still injects `MODELPLANE_LEADER_ADDRESS`, now computed from
-Grove's deterministic pod DNS instead of LWS's. Grove's per-clique pod specs map
-onto our separate Leader and Worker commands, which a DGD's single pod template
-can't (see §4). kai gang-schedules the group all-or-nothing and places it against
-the interconnect topology.
+On a Dynamo cluster, Grove and kai-scheduler are the multi-node backend. A
+`Standalone` engine stays a Deployment; a `Leader`+`Worker` gang becomes a Grove
+`PodCliqueSet` with a leader clique and a worker clique. Each carries its own
+command, and is gang-scheduled all-or-nothing by kai. `compose-model-replica`
+composes the `PodCliqueSet` in place of the LeaderWorkerSet. Grove's per-clique
+pod specs map onto our separate Leader and Worker commands, which a DGD's single
+pod template can't.
+
+The gang's coordination env comes across unchanged, so a command reads the same
+on either stack. `MODELPLANE_LEADER_ADDRESS` aliases Grove's deterministic pod
+DNS rather than LWS's, and `MODELPLANE_RANK` aliases the gang-wide pod index
+[grove#755](https://github.com/ai-dynamo/grove/pull/755) adds.
 
 ### ModelExpress
 
-On a Dynamo cluster the ModelExpress server runs as part of the stack, over
-Modelplane's existing cache PVC, so it's the weight-distribution path available
-to every engine there.
+ModelExpress does two things: it runs a cache service that downloads and
+deduplicates model weights, and it moves weights GPU-to-GPU between replicas over
+NIXL. I propose we take only the second.
 
-An engine opts in via its command. The user installs the ModelExpress client and
-loads with `--load-format modelexpress`. Modelplane provides the server and the
-`MX_*` env to reach it.
+A ModelCache stays what it is on either stack, a per-cache PVC that Modelplane
+hydrates itself. A Dynamo cluster additionally runs one ModelExpress server,
+which brokers which replica holds a model in GPU memory and never handles the
+weight bytes. The first replica loads from the PVC and publishes itself as a
+source; later replicas pull from a peer's GPU. Modelplane injects the `MX_*` env
+into every engine that references a cache.
 
-Because the user writes the loader flag and the engine is opaque (§2), the
-command only runs where ModelExpress is — not on a `Standard` cluster. We don't
-have a great answer to that coupling yet;
-[modelplaneai/modelplane#379](https://github.com/modelplaneai/modelplane/issues/379)
-explores one, where Modelplane computes the right loader flags per replica and
-exposes them as an env var the user interpolates. In the meantime an all-Dynamo
-fleet avoids it entirely, and a mixed fleet can steer these deployments with a
-`clusterSelector` (a `modelexpress: true` or `cache-type: modelexpress` label)
-so they land only where the loader will work.
+Letting ModelExpress own the cache instead — one shared PVC it hydrates through
+its own registry — would make a ModelCache mean something different depending on
+which cluster it lands on, and put its weights out of reach of any engine not
+using ModelExpress's loader. Keeping the PVC ours costs us the deduplicated pull
+and buys a cache, and a deployment, that are portable across both stacks.
+
+An engine opts in through its command: install the client, load with
+`--load-format modelexpress`. Modelplane injects no `--load-format` of its own.
+The command stays portable even so, because ModelExpress falls back to the
+engine's native loader when it finds no server, no peer, or no fabric. On a
+`Standard` cluster it just loads from the PVC.
 
 ```yaml
 apiVersion: modelplane.ai/v1alpha1
@@ -202,7 +199,7 @@ spec:
   template:
     spec:
       modelCacheRef:
-        name: qwen3-8b          # the PVC and ModelExpress server come from this cache on a Dynamo cluster
+        name: qwen3-8b          # a plain PVC on either stack; on Dynamo its replicas also seed each other
       engines:
       - name: qwen3-8b
         members:
@@ -231,18 +228,12 @@ spec:
                   exec vllm serve Qwen/Qwen3-8B --load-format modelexpress
 ```
 
-Behind the `modelCacheRef`, Modelplane provisions the RWX PVC as it does today,
-runs a `modelexpress-server` over it (reachable through its own Service;
-Modelplane injects `MX_SERVER_ADDRESS`), and pre-caches the repo into the PVC
-through the server. The server coordinates through ModelExpress's Kubernetes CRD
-backend.
-
-ModelExpress's registry dedups the pull and serves it offline, so there's no
-cold-deploy stampede on HuggingFace. Modelplane binds an RDMA NIC if the engine
-requests one. At run time the first replica reads the PVC, registers its VRAM,
-and publishes its worker endpoint as a `ModelMetadata` record. Every later
-replica reads that record and pulls the weights from it directly, pod to pod,
-rather than re-reading storage.
+Behind the `modelCacheRef`, Modelplane provisions the RWX PVC and hydrates it as
+it does on either stack, and binds an RDMA NIC if the engine requests one. The
+cluster's one `modelexpress-server` is reachable through its own Service and
+coordinates through ModelExpress's Kubernetes CRD backend; Modelplane injects
+`MX_SERVER_ADDRESS`. A replica registers its VRAM and publishes its worker
+endpoint as a `ModelMetadata` record for its peers to find.
 
 The fast NIC is optional — a performance choice, not a requirement. On EKS it's
 EFA, modeled as a claimable DRA device on the `InferenceClass` (driver `dra.net`,
@@ -263,10 +254,7 @@ spec:
     driver: gpu.nvidia.com
     deviceClassName: gpu.nvidia.com
     count: 8
-  # Optional fast fabric for ModelExpress's peer-to-peer transfer. On EKS that's
-  # EFA, a claimable DRA device via DraNet (driver dra.net); an InfiniBand fabric
-  # would be a Synthetic placement-only device instead. Without either, NIXL
-  # falls back to TCP.
+  # Optional fast fabric for ModelExpress's peer-to-peer transfer.
   - name: efa
     claim: DRA
     driver: dra.net
@@ -274,129 +262,60 @@ spec:
     count: 16
 ```
 
-### On GMS and Snapshot
+## Future improvements
 
-We propose we defer both the GPU Memory Service and Snapshot for now. They're
-capabilities we want (§1), but neither is cleanly à la carte: consuming them
-would mean Modelplane rebuilding the operator machinery Dynamo already ships
-around them. GMS needs a controller that watches for failed engine pods and
-force-deletes them without touching their GMS pods. Snapshot needs a privileged,
-node-level DaemonSet plus operator wiring — a checkpoint CRD, a mutating webhook,
-a placeholder image — and is still experimental. Rather than rebuild and run
-that ourselves, we'll pick both up with the DGD, where they come as part of the
-platform.
+### A composed DGD
 
-## 4. Asks to reach the end goal
+Nothing about the cluster opt-in changes: the same `stack: Dynamo` graduates from
+composing components to composing a `DynamoGraphDeployment`, and an ML developer
+writes the `Standalone`/`Leader`/`Worker` engines they'd write anywhere else.
 
-To get from §3 to §2 (a DGD composed behind an unchanged `ModelDeployment`) we
-have two asks. One is already on Dynamo's roadmap (the sidecar); one isn't
-(distinct leader and worker components). Together they're what lets a
-`ModelDeployment` land on a Dynamo cluster with the same engines, the same
-flags, and the same per-role commands it would carry on any other cluster —
-preserving the opaque-engine property from §2.
+A DGD can't preserve the opaque engine today, for three reasons. A multi-node
+component has one `podTemplate` that the operator expands into a leader and a
+worker, so there's nowhere to put a distinct worker command. The operator then
+appends its own launch flags to whatever the user wrote: `backend_vllm.go`
+injects `--nnodes`, `--node-rank`, `--master-addr` and `--headless`, SGLang gets
+`--dist-init-addr`, and TRT-LLM is wrapped in `mpirun`. And the engine runs as
+`python3 -m dynamo.<backend>` in a Dynamo runtime image rather than as `vllm
+serve`.
 
-### Where the DGD breaks the contract today
-
-**One template, roles inferred.** A multi-node DGD component is one `type:
-worker` component with `multinode.nodeCount: N` and a single `podTemplate`. The
-operator expands it into a leader clique and a worker clique, and there's nowhere
-to put a distinct leader command or worker command. So a replica whose engine is
-`Leader`+`Worker` — two members, two commands — can't map onto a DGD without us
-throwing the worker command away or fighting the operator's launch generation.
-
-**The operator rewrites the command.** On multi-node the operator appends
-distributed-launch flags to the user's `args`: `backend_vllm.go` injects
-`--distributed-executor-backend mp --nnodes N --master-addr <leader>
---master-port 29500`, leader adds `--node-rank 0`, workers add `--node-rank
-<rank> --headless`; SGLang gets `--dist-init-addr`, `--nnodes`, `--node-rank`;
-TRT-LLM gets wrapped in `mpirun`. The user's command is not the command that
-runs.
-
-Both of these only fire when a *single* component is multinode. The injection
-logic in `backend_vllm.go` short-circuits on `numberOfNodes <= 1`
-(`shouldInjectVLLMMpWaitLeaderInit`, `updateVLLMMultinodeArgs`); a single-node
-component is pass-through, the command you write is what runs.
-
-**And the engine runs in a Dynamo runtime image.** A DGD worker launches
-`python3 -m dynamo.<backend>`, not `vllm serve`; the engine runs inside a Dynamo
-Python module in a `*-runtime` image. Ask 1 already targets this.
-
-### Ask 1: Replace the Python runtime frontend with a sidecar
-
-Per [ai-dynamo/dynamo#10835](https://github.com/ai-dynamo/dynamo/issues/10835),
-Dynamo already intends to support vanilla upstream engine images (e.g. vLLM) by
-moving its bespoke logic from the runtime wrapper (`python3 -m dynamo.<backend>`)
-to a sidecar container:
+Dynamo is working on all three.
+[#10835](https://github.com/ai-dynamo/dynamo/issues/10835) moves the runtime
+wrapper's logic into a sidecar, so a stock engine image serves:
 
 > Operator preference. We see signals that users prefer each engine's native
 > `xxx serve` experience over a Dynamo-specific `dynamo.xxx` entrypoint, largely
 > because CLI behavior and options diverge.
 
-An API sketch of a DGD using the sidecar would help us here, along with a sense
-of how the sidecar affects what flags and environment variables the engines
-need.
+For the other two we need a worker's pod spec to be able to differ from its
+leader's, and a way to tell the operator not to generate launch flags, leaving
+the commands the user wrote. Dynamo is working on both in
+[#12696](https://github.com/ai-dynamo/dynamo/issues/12696), whose motivation
+names our case: integrations "that provide different Leader and Worker commands,
+environment, DRA references, or placement."
 
-### Ask 2: Distinct leader and worker components
+## Alternatives considered
 
-We'd like an advanced, opt-in mode in which the DGD author can specify leader
-and worker engine pod specs separately. In this mode the DGD controller wouldn't
-inject any engine flags. It would pass through what the user specifies, as
-Modelplane does. We believe DGD `v1beta1` could add this as an optional feature
-without breaking changes. For example:
+### A gang scheduler on the Standard stack
 
-```yaml
-components:
-- name: worker-leader
-  type: worker-leader  # Needs a better name, open to ideas.
-  replicas: 1
-  podTemplate:
-    spec:
-      containers:
-      - name: main
-        image: vllm/vllm-openai:v0.23.0
-        command:
-        - /bin/sh
-        - -c
-        - >-
-          exec vllm serve /mnt/models
-          --served-model-name=qwen3-coder
-          --tensor-parallel-size=8
-          --pipeline-parallel-size=2
-          --distributed-executor-backend=mp
-          --nnodes=2 --node-rank=0
-          --master-addr=$DYN_LEADER_ADDRESS
-          --max-model-len=32768
-          --port=8000
-- name: worker-follower
-  type: worker-follower  # Better name needed here too.
-  replicas: 1
-  podTemplate:
-    spec:
-      containers:
-      - name: main
-        image: vllm/vllm-openai:v0.23.0
-        command:
-        - /bin/sh
-        - -c
-        - >-
-          exec vllm serve /mnt/models
-          --served-model-name=qwen3-coder
-          --tensor-parallel-size=8
-          --pipeline-parallel-size=2
-          --distributed-executor-backend=mp
-          --nnodes=2 --node-rank=1
-          --master-addr=$DYN_LEADER_ADDRESS
-          --headless
-          --max-model-len=32768
-```
+Gang scheduling and topology-aware placement are the one capability above with
+credible alternatives. Volcano and Kueue can both gang-schedule a LeaderWorkerSet
+against a hardware topology, and LWS integrates with each. JobSet can express
+cross-role startup ordering.
 
-We'd want Dynamo to set env vars inside the leader and follower pods — for
-example the `$DYN_LEADER_ADDRESS` referenced above — so the two can discover each
-other, the way `LWS_LEADER_ADDRESS` and `GROVE_HEADLESS_SERVICE` already do.
+So we could close that gap without Dynamo, by adding Volcano to the Standard
+stack. A per-cluster stack means Standard can gain a gang scheduler without
+touching a Dynamo cluster, and a fleet runs whichever fits each cluster.
 
-## 5. Alternative considered: a delegated engine
+That closes one of the gaps above and leaves the rest, and the ones it leaves are
+the ones with no alternative at all. Nothing outside Dynamo keeps a model's
+weights resident in GPU memory across an engine crash, and nothing short of a
+frontend that owns the stream can resume a generation mid-flight. On a Dynamo
+cluster gang scheduling arrives with those.
 
-Before the plan above, we considered exposing the DGD directly in Modelplane's
+### A delegated engine
+
+Before the plan above, I considered exposing the DGD directly in Modelplane's
 API rather than composing it invisibly. In that design the ML team hands a whole
 engine to Dynamo through a new member `role: Delegated` and a `stack: Dynamo`
 selector, writing a Dynamo runtime image and letting Dynamo synthesize the
@@ -428,10 +347,9 @@ single-template, roles-inferred model and its runtime image. Modelplane would
 compose a single DGD (a synthesized frontend plus one component per engine) and
 point the replica's route at Dynamo's frontend.
 
-We're not proposing this as the goal, for two reasons. It changes the ML-facing
-API: `Delegated` is a new role and a Dynamo-specific block, so the user's
-`ModelDeployment` now looks different depending on which cluster it lands on.
-And it breaks the opaque-engine contract from §2: the engine must be a
+I'm not proposing it, because it gives up both goals at once. `Delegated` is a
+new role and a Dynamo-specific block, so a `ModelDeployment` reads differently
+depending on which cluster it lands on. And the engine must be a
 `dynamo.<backend>` runtime image rather than the stock `vllm serve` the user
-writes everywhere else. The §2 end goal reaches the same DGD backend while
-keeping the API and the engine identical across clusters.
+writes everywhere else. The end state above reaches the same DGD backend without
+giving up either.
