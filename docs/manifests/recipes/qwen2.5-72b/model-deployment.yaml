@@ -36,6 +36,6 @@ spec:
               - name: engine
                 image: vllm/vllm-openai:v0.23.0
                 args:
-                - --model=/mnt/models
+                - --model=Qwen/Qwen2.5-72B-Instruct-AWQ
                 - --served-model-name=qwen-72b
                 - --max-model-len=8192

@@ -46,7 +46,7 @@ spec:
                 image: lmsysorg/sglang:v0.5.12.post1-cu129
                 command: ["python3", "-m", "sglang.launch_server"]
                 args:
-                - --model-path=/mnt/models
+                - --model-path=poolside/Laguna-S-2.1-FP8
                 - --served-model-name=laguna
                 - --tp-size=8
                 - --context-length=262144

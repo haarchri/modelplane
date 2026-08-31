@@ -131,11 +131,17 @@ def _hf_hydration(hf: v1alpha1.HuggingFace, auth_secret_name: str | None) -> tup
     The marker is touched only after a successful download (set -e aborts the
     chain on failure, so a failed pull never marks the cache complete).
 
-    When the cache references an authSecret, HF_TOKEN is read from the
-    propagated workload-cluster Secret (auth_secret_name), not the user's
-    control-plane Secret name - the two live on different clusters.
+    HF_HUB_CACHE points `hf download` at the mount, which stages HuggingFace's
+    own cache layout there. --local-dir would write a flat tree, which can't
+    satisfy a repo-id lookup: compose-model-replica sets the same variable, so
+    an engine's --model=<repo> resolves against the staged snapshot (#407). A
+    future non-HuggingFace source would stage whatever layout its own tooling
+    expects.
+
+    HF_TOKEN comes from the propagated workload-cluster Secret, not the user's
+    control-plane Secret name; the two live on different clusters.
     """
-    env: list[dict] = []
+    env: list[dict] = [{"name": "HF_HUB_CACHE", "value": HYDRATION_MOUNT}]
     if hf.authSecret:
         env.append(
             {
@@ -153,7 +159,7 @@ def _hf_hydration(hf: v1alpha1.HuggingFace, auth_secret_name: str | None) -> tup
         "set -e; "
         f"{_SKIP_IF_HYDRATED}"
         "pip install --quiet huggingface_hub; "
-        f"hf download {hf.repo}{revision_arg} --local-dir {HYDRATION_MOUNT}; "
+        f"hf download {hf.repo}{revision_arg}; "
         f"touch {_HYDRATED_MARKER}"
     )
     return env, command

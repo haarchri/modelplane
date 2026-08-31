@@ -16,7 +16,9 @@
 
 For a single self-contained pod no orchestrator is needed. Weights load
 directly: the engine's --model arg is passed through unmodified, so vLLM/SGLang
-fetches from its source at startup using credentials from engine.env.
+names its own model. Without a ModelCache it fetches from the source at startup
+using credentials from engine.env; with one, base.cache_env points HuggingFace
+at the mount so that same name resolves to the pre-staged weights instead.
 
 The backend composes the engine's Deployment and the Standalone member's
 ResourceClaimTemplate. The shared Service and HTTPRoute that front a replica's
@@ -36,6 +38,7 @@ class NativeBackend:
         engine: v1alpha1.Engine,
         provider_config: str,
         serving_label: str,
+        stack: str,
     ) -> dict[str, k8sobjv1alpha1.Object]:
         member = base.engine_member(engine, base.ROLE_STANDALONE)
         # select_backend dispatches the native backend only for an engine with a
@@ -53,12 +56,11 @@ class NativeBackend:
         selector = {base.LABEL_WORKLOAD: name}
 
         cache_volumes, cache_volume_mounts = base.cache_mounts(replica)
-        args = base.apply_cache_args(list(engine_container.args or []), replica, engine_container)
 
         container = {
             "name": "engine",
             "image": engine_container.image,
-            "args": args,
+            "args": list(engine_container.args or []),
             "ports": [{"containerPort": base.ENGINE_PORT}],
             # vLLM tensor parallelism needs a large /dev/shm.
             "volumeMounts": [{"name": "dshm", "mountPath": "/dev/shm"}, *cache_volume_mounts],
@@ -81,8 +83,17 @@ class NativeBackend:
             container["resources"] = base.engine_resources()
         if engine_container.command:
             container["command"] = list(engine_container.command)
+        # Modelplane's entries lead so the user's can reference them. A scaled
+        # Standalone deployment is as valid a ModelExpress peer set as a gang,
+        # so it gets that env too.
+        env = [*base.cache_env(replica), *base.modelexpress_env(replica, stack)]
         if engine_container.env:
-            container["env"] = [e.model_dump(exclude_none=True) for e in engine_container.env]
+            env.extend(e.model_dump(exclude_none=True) for e in engine_container.env)
+        if env:
+            container["env"] = env
+        security_context = base.modelexpress_security_context(replica, stack)
+        if security_context:
+            container["securityContext"] = security_context
 
         pod_spec = {
             "containers": [container],

@@ -25,19 +25,15 @@ so the InferencePool + EPP this path originally emitted aren't needed yet.
 Reintroducing them is a workload-gateway concern, deferred with disaggregated
 serving.
 
-Modelplane is unopinionated about the engine. Both the leader's and the
-worker's commands and args are passed through verbatim - Modelplane injects no
-parallelism flags and no bootstrap. A multi-node launch convention Modelplane
-has never heard of still works, because the coordination asymmetry between
-running the head and joining it lives in the two members' commands, which the
-user writes. A member addresses the leader through
-$(MODELPLANE_LEADER_ADDRESS) and finds its own place in the gang through
-$(MODELPLANE_RANK), both of which Modelplane injects into every engine
-container (aliasing LWS_LEADER_ADDRESS and LWS_WORKER_INDEX for this backend).
+Modelplane is unopinionated about the engine: both members' commands and args
+pass through verbatim, so a launch convention Modelplane has never heard of
+still works. A member addresses the leader through $(MODELPLANE_LEADER_ADDRESS)
+and finds its rank through $(MODELPLANE_RANK), aliasing LWS_LEADER_ADDRESS and
+LWS_WORKER_INDEX here.
 
-Weight loading mirrors native: the engine's --model arg is passed through
-unmodified, so the engine fetches from its source at startup using credentials
-from engine.env.
+Weight loading mirrors native: the engine names its own model, and with a cache
+base.cache_env points HuggingFace at the mount so that name resolves to the
+staged weights.
 """
 
 from models.ai.modelplane.modelreplica import v1alpha1
@@ -57,6 +53,10 @@ class LLMDBackend:
         engine: v1alpha1.Engine,
         provider_config: str,
         serving_label: str,
+        # Named to match the Backend protocol so a keyword call works on every
+        # backend. Unused here: this backend is Standard-only, so there's no
+        # stack to switch on.
+        stack: str,  # noqa: ARG002
     ) -> dict[str, k8sobjv1alpha1.Object]:
         leader = base.engine_member(engine, base.ROLE_LEADER)
         worker = base.engine_member(engine, base.ROLE_WORKER)
@@ -75,11 +75,6 @@ class LLMDBackend:
         def container(member: v1alpha1.Member, *, serving: bool) -> dict:
             engine_container = base.engine_container(member)
             args = list(engine_container.args or [])
-            # The turnkey cache --model injection is for the serving engine (the
-            # leader) only; a follower joins via its own command and never serves,
-            # so injecting --model into it would be a flag it doesn't expect.
-            if serving:
-                args = base.apply_cache_args(args, replica, engine_container)
             c = {
                 "name": "engine",
                 "image": engine_container.image,
@@ -98,8 +93,9 @@ class LLMDBackend:
             # MODELPLANE_LEADER_ADDRESS and MODELPLANE_RANK ahead of the user's
             # env entries, so they (and commands) can reference $(MODELPLANE_*).
             # LWS prepends its own LWS_* vars ahead of all of these in the
-            # running pod.
-            env = [base.leader_address_env(), base.rank_env()]
+            # running pod. cache_env points HuggingFace at the mount so every
+            # member's --model=<repo> resolves against the pre-staged snapshot.
+            env = [base.leader_address_env(), base.rank_env(), *base.cache_env(replica)]
             if engine_container.env:
                 env.extend(e.model_dump(exclude_none=True) for e in engine_container.env)
             c["env"] = env

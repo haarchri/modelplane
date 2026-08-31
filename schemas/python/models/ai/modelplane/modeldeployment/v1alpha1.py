@@ -125,7 +125,7 @@ class Container(BaseModel):
     """
     command: list[str] | None = None
     """
-    Container entrypoint override, passed through verbatim. For a Leader or Worker, the command owns cross-node coordination: it addresses the leader through $(MODELPLANE_LEADER_ADDRESS) and finds the pod's rank (0 for the Leader, 1..worker.nodes for followers) through $(MODELPLANE_RANK), both of which Modelplane injects into every engine container.
+    Container entrypoint override, passed through verbatim. For a Leader or Worker, the command owns cross-node coordination: it addresses the leader through $(MODELPLANE_LEADER_ADDRESS), which Modelplane injects into every engine container on either stack. The pod's rank (0 for the Leader, 1..worker.nodes for followers) comes from $(MODELPLANE_RANK) on a Standard cluster; on Dynamo the command derives it from Grove's GROVE_PCLQ_POD_INDEX, since Grove exposes no group-wide pod index yet.
     """
     env: list[EnvItem] | None = None
     """
@@ -196,7 +196,7 @@ class Member(BaseModel):
 class Engine(BaseModel):
     copies: conint(ge=1, le=64) | None = 1
     """
-    How many identical copies of this engine to run per ModelReplica. A fixed number, sized once per deployment; scaling happens by adding ModelReplicas (spec.replicas), never by varying copies. Maps to the composed Deployment's or LeaderWorkerSet's replica count. Defaults to 1.
+    How many identical copies of this engine to run per ModelReplica. A fixed number, sized once per deployment; scaling happens by adding ModelReplicas (spec.replicas), never by varying copies. Maps to the composed Deployment's or LeaderWorkerSet's replica count, or a Grove PodCliqueSet's podCliqueScalingGroups[].replicas (its spec.replicas stays 1). Defaults to 1.
     """
     members: list[Member] = Field(..., max_length=2, min_length=1)
     """
@@ -249,7 +249,7 @@ class SpecModel(BaseModel):
     """
     engines: list[Engine] = Field(..., max_length=8, min_length=1)
     """
-    A ModelReplica's inference engines. An engine is one serving unit: a single Standalone pod, or a gang of a Leader and one or more Workers coordinating across nodes. Modelplane composes the whole array once per ModelReplica; an engine composes to a Deployment (Standalone) or a LeaderWorkerSet (Leader/Worker), but the workload kind is an implementation detail. Modelplane is unopinionated about the engine itself: parallelism, quantization, and KV transfer all live in the members' engine flags, written by the user, never injected by Modelplane.
+    A ModelReplica's inference engines. An engine is one serving unit: a single Standalone pod, or a gang of a Leader and one or more Workers coordinating across nodes. Modelplane composes the whole array once per ModelReplica; an engine composes to a Deployment (Standalone) or, for a Leader/Worker gang, a LeaderWorkerSet or a Grove PodCliqueSet depending on the cluster's stack, but the workload kind is an implementation detail. Modelplane is unopinionated about the engine itself: parallelism, quantization, and KV transfer all live in the members' engine flags, written by the user, never injected by Modelplane.
     """
     modelCacheRef: ModelCacheRef | None = None
     """

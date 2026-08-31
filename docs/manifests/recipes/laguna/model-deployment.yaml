@@ -48,7 +48,7 @@ spec:
               containers:
               - name: engine
                 image: vllm/vllm-openai:v0.25.1
-                command: ["vllm", "serve", "/mnt/models"]
+                command: ["vllm", "serve", "poolside/Laguna-S-2.1-FP8"]
                 args:
                 - --served-model-name=laguna
                 - --tensor-parallel-size=8

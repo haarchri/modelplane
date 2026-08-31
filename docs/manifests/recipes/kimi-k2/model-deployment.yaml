@@ -53,7 +53,7 @@ spec:
               containers:
               - name: engine
                 image: vllm/vllm-openai:v0.23.0
-                command: ["vllm", "serve", "/mnt/models"]
+                command: ["vllm", "serve", "RedHatAI/Kimi-K2-Instruct-quantized.w4a16"]
                 args:
                 - --served-model-name=kimi-k2
                 - --quantization=compressed-tensors
@@ -96,7 +96,7 @@ spec:
               containers:
               - name: engine
                 image: vllm/vllm-openai:v0.23.0
-                command: ["vllm", "serve", "/mnt/models"]
+                command: ["vllm", "serve", "RedHatAI/Kimi-K2-Instruct-quantized.w4a16"]
                 args:
                 - --served-model-name=kimi-k2
                 - --quantization=compressed-tensors

@@ -124,10 +124,15 @@ replicas, and load-balances across all of them.
 {{< /qa >}}
 
 {{< qa "How do large or multi-node models work?" >}}
-An engine can be a gang: a leader and one or more workers that Modelplane composes
-into a LeaderWorkerSet across nodes. You write the coordination (like Ray or vLLM's data-parallel coordinator) in the engine flags, and Modelplane injects
-the leader's address so the workers can join it. Multi-node deployments stage
-weights through a `ModelCache`.
+An engine can be a gang: a leader and one or more workers serving across nodes.
+By default Modelplane composes the gang into a LeaderWorkerSet; a cluster can opt
+into Grove + KAI Scheduler for gang scheduling via
+`InferenceCluster.spec.stack: Dynamo`. You write the coordination (like
+Ray or vLLM's data-parallel coordinator) in the engine flags, referencing the
+leader's address through `MODELPLANE_LEADER_ADDRESS`, which resolves on either
+stack. The pod's rank is `MODELPLANE_RANK` under Standard; under Dynamo the
+command derives it from Grove's own `GROVE_PCLQ_POD_INDEX`. Multi-node
+deployments stage weights through a `ModelCache`.
 {{< /qa >}}
 
 {{< qa "What about disaggregated prefill/decode?" >}}

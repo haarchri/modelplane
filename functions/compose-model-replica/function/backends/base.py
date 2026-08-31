@@ -19,6 +19,7 @@ serving resources. Backends return provider-kubernetes Objects; the dispatcher
 (fn.py) applies them to the response.
 """
 
+import hashlib
 from typing import Protocol
 
 from crossplane.function import resource
@@ -50,13 +51,14 @@ class Backend(Protocol):
         engine: v1alpha1.Engine,
         provider_config: str,
         serving_label: str,
+        stack: str,
     ) -> dict[str, k8sobjv1alpha1.Object]: ...
 
 
 # Backend identifiers.
 NATIVE = "native"
 LLMD = "llmd"
-DYNAMO = "dynamo"
+GROVE = "grove"
 
 # Member roles.
 ROLE_STANDALONE = "Standalone"
@@ -83,9 +85,10 @@ def cache_pvc_name(namespace: str, cache_name: str) -> str:
 def cache_mounts(replica: v1alpha1.ModelReplica) -> tuple[list[dict], list[dict]]:
     """Return (volumes, volumeMounts) for the replica's cache, or ([], []).
 
-    modelCacheRef carries only a name; the ModelCache is in the replica's own
-    namespace, so the PVC name is qualified by replica.metadata.namespace. The
-    cache is shared across every engine and member of the replica.
+    The cache is a per-cache PVC qualified by the replica's namespace
+    (modelCacheRef carries only a name, and the ModelCache is in the replica's
+    own namespace). The PVC is shared across every engine and member of the
+    replica.
     """
     ref = replica.spec.modelCacheRef
     if not ref:
@@ -101,26 +104,106 @@ def cache_mounts(replica: v1alpha1.ModelReplica) -> tuple[list[dict], list[dict]
     )
 
 
-def apply_cache_args(args: list[str], replica: v1alpha1.ModelReplica, engine: v1alpha1.Container) -> list[str]:
-    """Inject --model=<mount> for the turnkey vLLM path only.
+def cache_env(replica: v1alpha1.ModelReplica) -> list[dict]:
+    """Env that makes the cache mount resolvable by the model's own name, or [].
 
-    KServe used to inject this; nothing does now, and without it vLLM silently
-    serves facebook/opt-125m. It is vLLM-specific (the `--model` flag), so it is
-    skipped when:
-    - no cache is referenced;
-    - the engine brings its own `command` — a non-vLLM engine like SGLang owns
-      its args and points at the mount with its own flag (`--model-path`), so
-      injecting `--model` would hand it an unknown flag; or
-    - the user already set `--model`.
+    compose-model-cache stages a HuggingFace source in HuggingFace's own cache
+    layout, so pointing HF_HUB_CACHE at the mount lets an engine load by repo id
+    against the staged snapshot. The command is then the same cached or not, and
+    Modelplane injects no --model of its own (#407). No HF_HUB_OFFLINE: it isn't
+    needed to resolve the snapshot, and it breaks an engine that fetches a
+    second repo at startup, like kimi-k2's gated tokenizer.
 
-    The cache *volume/mount* (cache_mounts) is added regardless of engine shape;
-    only this arg injection is vLLM-specific.
+    An engine must name the revision its cache staged. A bare repo id resolves
+    at the default branch, so a cache pinned to a commit or tag misses unless
+    the engine passes that revision too.
+
+    HF_HUB_CACHE is a cache root, not a pin, so an engine fetching some other
+    repo by id writes it to the shared PVC rather than its own filesystem.
+
+    HuggingFace-specific because the source is. A second ModelCache source would
+    stage its own layout and gate this on the source.
     """
-    if not replica.spec.modelCacheRef or engine.command:
-        return args
-    if any(a == "--model" or a.startswith("--model=") for a in args):
-        return args
-    return [*args, f"--model={CACHE_MOUNT_PATH}"]
+    if not replica.spec.modelCacheRef:
+        return []
+    return [{"name": "HF_HUB_CACHE", "value": CACHE_MOUNT_PATH}]
+
+
+# Well-known name of the per-cluster shared ModelExpress server that
+# compose-serving-stack installs in `default` on a Dynamo cluster. One server
+# per cluster: engine pods reach it by its Service name. A cross-function
+# contract (compose-serving-stack owns the server and Service); the two
+# functions hard-code the string independently and must change together.
+_MODELEXPRESS_SERVER_SERVICE = "modelexpress-server"
+
+# Port the ModelExpress server listens on. Must stay in sync with
+# compose-serving-stack's _MODELEXPRESS_PORT.
+_MODELEXPRESS_PORT = 8001
+
+
+def modelexpress_env(replica: v1alpha1.ModelReplica, stack: str) -> list[dict]:
+    """ModelExpress P2P env for an engine pod that references a cache on a
+    Dynamo cluster, or [] otherwise.
+
+    Gated on Dynamo, where the metadata-only server runs, and on referencing a
+    cache, where there are weights to seed from. A scaled Standalone deployment
+    is as valid a peer set as a gang, so the native backend injects it too.
+    Every variable here is read only by ModelExpress's client, so the bundle is
+    inert unless the engine opts in with --load-format modelexpress, which
+    Modelplane never injects.
+
+    MODEL_EXPRESS_URL is deprecated in favour of MX_SERVER_ADDRESS but still
+    takes precedence when both are set, so both are set. No cache-directory
+    variable: ModelExpress falls back to HF_HUB_CACHE, which cache_env sets.
+
+    MX_MODEL_REVISION isolates this cache's P2P source identity, which
+    ModelExpress content-addresses from the model name and revision. Two caches
+    of the same repo, neither pinning a revision, can hold different commits
+    while both engines report none, so a replica could load a peer's other
+    weights. The PVC name is stable across a cache's replicas and distinct
+    across caches and namespaces; the resolved commit would be better, but only
+    the hydration Job sees it. The cost is that identical caches can't share a
+    source.
+
+    POD_* identify the publishing pod. A 0.5.0 server owns the ModelMetadata CRs
+    with them so Kubernetes garbage-collects them; the pinned 0.4.1 ignores
+    them, so a server bump is a version change rather than a code one.
+    """
+    ref = replica.spec.modelCacheRef
+    if not ref or stack != "Dynamo":
+        return []
+    address = f"{_MODELEXPRESS_SERVER_SERVICE}:{_MODELEXPRESS_PORT}"
+    return [
+        {"name": "MX_SERVER_ADDRESS", "value": address},
+        {"name": "MODEL_EXPRESS_URL", "value": address},
+        {"name": "MX_MODEL_REVISION", "value": cache_pvc_name(_namespace(replica.metadata), ref.name)},
+        {"name": "MX_P2P_METADATA", "value": "1"},
+        {"name": "POD_NAME", "valueFrom": {"fieldRef": {"fieldPath": "metadata.name"}}},
+        {"name": "POD_UID", "valueFrom": {"fieldRef": {"fieldPath": "metadata.uid"}}},
+        {"name": "POD_NAMESPACE", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}},
+    ]
+
+
+def modelexpress_security_context(replica: v1alpha1.ModelReplica, stack: str) -> dict | None:
+    """IPC_LOCK, which GPUDirect RDMA needs to pin memory, or None unless the
+    replica references a cache on a Dynamo cluster.
+
+    Gated like modelexpress_env, but unlike that env this isn't inert. The
+    restricted Pod Security Standard permits no added capability except
+    NET_BIND_SERVICE, so a workload cluster that labels REMOTE_NAMESPACE
+    pod-security.kubernetes.io/enforce=restricted rejects every
+    cache-referencing engine on a Dynamo cluster, whether it loads through
+    ModelExpress or not. Modelplane doesn't set that label on the clusters it
+    provisions, but an Existing cluster it's pointed at might carry it.
+
+    TODO(negz): if that bites someone, narrow this to members whose pool
+    declares a fabric? An engine with no fabric can't do RDMA, so it has no use
+    for the capability.
+    """
+    ref = replica.spec.modelCacheRef
+    if not ref or stack != "Dynamo":
+        return None
+    return {"capabilities": {"add": ["IPC_LOCK"]}}
 
 
 # Namespace for serving workloads (and their ResourceClaimTemplate) on remote
@@ -132,9 +215,10 @@ REMOTE_NAMESPACE = "default"
 ENGINE_PORT = 8000
 
 # Pod label carrying the serving identity (the replica name). The replica's one
-# shared Service selects on it, so every engine's serving pods - a Standalone pod
-# or an LWS gang leader - carry it. A multi-node gang's worker followers do NOT
-# (they don't serve the OpenAI API), so the Service never routes to them.
+# shared Service selects on it, so every engine's serving pods carry it - a
+# Standalone pod, or a gang's leader (a LeaderWorkerSet leader or a Grove leader
+# clique's pod, depending on the cluster's stack). A multi-node gang's workers do
+# NOT (they don't serve the OpenAI API), so the Service never routes to them.
 LABEL_SERVING = "modelplane.ai/serving"
 
 # Pod label scoping a workload's own pods, used as a Deployment's selector. It's
@@ -151,8 +235,8 @@ def pod_metadata(member: v1alpha1.Member, labels: dict[str, str] | None = None) 
     template a backend composes, merged with the managed labels the backend
     passes. The XRDs reject member labels in the reserved modelplane.ai/
     namespace at admission, so a user label can never collide with the managed
-    ones (or stamp the serving label onto an LWS worker, routing traffic to a
-    pod that doesn't serve the OpenAI API). Returns {} when there is nothing to
+    ones (or stamp the serving label onto a worker, routing traffic to a pod
+    that doesn't serve the OpenAI API). Returns {} when there is nothing to
     set, so a caller can omit metadata entirely.
     """
     user = member.template.metadata
@@ -166,14 +250,9 @@ def pod_metadata(member: v1alpha1.Member, labels: dict[str, str] | None = None) 
     return meta
 
 
-# Backend-neutral env vars carrying the gang's coordination values, injected
-# into every engine container of a multi-node engine's gang: the leader's
-# address, and the pod's rank (0 for the leader, 1..worker.nodes for each
-# follower). A member's command finds its peers and its own place in the gang
-# through these without hard-coding the underlying orchestrator's variables.
-# For the LWS backend they alias LWS_LEADER_ADDRESS and LWS_WORKER_INDEX;
-# another gang scheduler would alias its own. $(VAR) is Kubernetes downward env
-# expansion - the container sees the MODELPLANE_ vars resolved to their values.
+# Backend-neutral aliases for the orchestrator's own gang-coordination vars, so
+# a member's command doesn't name LWS or Grove directly. Rank is LWS-only;
+# Grove has no equivalent yet (see grove_leader_address_env).
 LEADER_ADDRESS_ENV = "MODELPLANE_LEADER_ADDRESS"
 RANK_ENV = "MODELPLANE_RANK"
 _LWS_LEADER_ADDRESS_ENV = "LWS_LEADER_ADDRESS"
@@ -204,6 +283,42 @@ def rank_env() -> dict:
     return {"name": RANK_ENV, "value": f"$({_LWS_WORKER_INDEX_ENV})"}
 
 
+_GROVE_PCSG_NAME_ENV = "GROVE_PCSG_NAME"
+_GROVE_PCSG_INDEX_ENV = "GROVE_PCSG_INDEX"
+_GROVE_HEADLESS_SERVICE_ENV = "GROVE_HEADLESS_SERVICE"
+
+
+def grove_leader_address_env() -> dict:
+    """The MODELPLANE_LEADER_ADDRESS env entry for the Grove backend.
+
+    Concatenating the PCSG name and index reproduces Grove's own PodClique name,
+    and the leader clique holds one pod, so this resolves to the leader of *this
+    gang*. The PCS-scoped vars are identical across gangs and would point every
+    engine.copies at gang 0's leader.
+
+    Needs Grove to inject its vars before template env for the expansion to see
+    them (grove#753, first released in v0.1.0-alpha.12-rc2, which the serving
+    stack pins).
+    """
+    leader_pod = f"$({_GROVE_PCSG_NAME_ENV})-$({_GROVE_PCSG_INDEX_ENV})-{GROVE_LEADER_CLIQUE}-0"
+    address = leader_pod + f".$({_GROVE_HEADLESS_SERVICE_ENV})"
+    return {"name": LEADER_ADDRESS_ENV, "value": address}
+
+
+# Clique names are immutable and must be unique within a PodCliqueSet, so they're
+# fixed rather than derived from the member role. Both cliques sit in one scaling
+# group, so engine.copies scales the leader+worker pair as a unit.
+GROVE_LEADER_CLIQUE = "leader"
+GROVE_WORKER_CLIQUE = "worker"
+GROVE_PCSG = "gang"
+
+# The scheduler every Grove-composed PodCliqueSet's pods name, and the KAI
+# queue they're labelled into (see compose-serving-stack's compose_kai_queues).
+GROVE_SCHEDULER_NAME = "kai-scheduler"
+GROVE_QUEUE_LABEL = "kai.scheduler/queue"
+GROVE_QUEUE = "modelplane"
+
+
 # Response resource keys. A replica's HTTPRoute keeps a stable key; each engine's
 # workload gets an engine-scoped key and each member's claim a member-scoped one
 # (the engine name plus the member role) so a multi-engine replica's resources
@@ -223,7 +338,7 @@ REQUEST_TIMEOUT = "0s"
 
 
 def workload_key(engine: v1alpha1.Engine) -> str:
-    """Response key for an engine's workload (Deployment or LeaderWorkerSet)."""
+    """Response key for an engine's workload (Deployment, LeaderWorkerSet, or PodCliqueSet)."""
     return f"{_WORKLOAD_KEY}-{engine.name}"
 
 
@@ -267,14 +382,26 @@ _DRA_API_VERSION = "resource.k8s.io/v1"
 # reference individual requests within the claim.
 _POD_CLAIM_NAME = "devices"
 
-# CEL readiness query matching workloads whose all-replicas-available signal is
-# an Available=True condition. Both a Deployment and a LeaderWorkerSet publish
-# this condition when their desired replicas are up; neither publishes a Ready
-# condition, so provider-kubernetes' DeriveFromObject policy (which only checks
-# a Ready condition) can never mark them ready. The has() guard keeps the query
+# CEL readiness query matching a Deployment's or LeaderWorkerSet's
+# all-replicas-available signal, an Available=True condition. Both publish this
+# condition when their desired replicas are up but neither publishes a Ready
+# condition, so provider-kubernetes' DeriveFromObject policy (which only checks a
+# Ready condition) can never mark them ready. The has() guard keeps the query
 # false (not erroring) before the workload first writes status.conditions.
 AVAILABLE_CEL = (
     'has(object.status.conditions) && object.status.conditions.exists(c, c.type == "Available" && c.status == "True")'
+)
+
+# Grove publishes no Ready or Available condition on a PodCliqueSet, so
+# readiness comes from its replica counters: a replica counts as available once
+# every clique and scaling group is at or above minAvailable. observedGeneration
+# guards against a count left over from before the last spec change.
+# status.podGangStatuses looks useful here but Grove never populates it.
+GROVE_AVAILABLE_CEL = (
+    "has(object.status) && has(object.status.observedGeneration) && "
+    "object.status.observedGeneration == object.metadata.generation && "
+    "object.spec.replicas > 0 && has(object.status.availableReplicas) && "
+    "object.status.availableReplicas >= object.spec.replicas"
 )
 
 
@@ -324,8 +451,8 @@ def engine_container(member: v1alpha1.Member) -> v1alpha1.Container:
 
     v0.1 constrains the template to a single container (the engine) via the
     XRD (containers maxItems: 1), so there is nothing to drop. Sidecar /
-    multi-container support is tracked in #108 — it needs design for the LWS
-    gang (which containers run on the leader vs the workers).
+    multi-container support is tracked in #108 — it needs design for the Grove
+    gang (which containers run on the leader vs the worker clique).
     """
     # An engine member carries its container in template.spec. The XRD types
     # spec as optional but a member with no spec defines no pod to serve, so
@@ -343,16 +470,17 @@ def engine_member(engine: v1alpha1.Engine, role: str) -> v1alpha1.Member | None:
     return next((m for m in engine.members if (m.role or ROLE_STANDALONE) == role), None)
 
 
-def select_backend(engine: v1alpha1.Engine) -> str:
+def select_backend(engine: v1alpha1.Engine, stack: str) -> str:
     """Pick the serving path for an engine from its member roles.
 
     A single Standalone member is a self-contained pod, served natively as a
     Deployment. A Leader plus Worker gang coordinates across nodes, served by
-    llm-d as a LeaderWorkerSet. Dynamo is dormant in v0.1.
+    the cluster's chosen stack: Standard (a LeaderWorkerSet, the LLMD backend)
+    or Dynamo (a Grove PodCliqueSet).
     """
     if engine_member(engine, ROLE_STANDALONE) is not None:
         return NATIVE
-    return LLMD
+    return GROVE if stack == "Dynamo" else LLMD
 
 
 def engine_name(replica: v1alpha1.ModelReplica, engine: v1alpha1.Engine) -> str:
@@ -361,16 +489,33 @@ def engine_name(replica: v1alpha1.ModelReplica, engine: v1alpha1.Engine) -> str:
     Every engine's resources are qualified by the engine name: per-replica so
     co-located replicas of one deployment don't collide on the remote cluster,
     and per-engine so a multi-engine replica's workloads don't collide with each
-    other.
-
-    Crucially this name always differs from the replica name, which the shared
-    serving Service and HTTPRoute use. A LeaderWorkerSet's controller creates a
-    headless Service named after the LWS for gang pod DNS (the leader address
-    the followers join) - but only if no Service of that name exists. If the
-    LWS shared the serving Service's name, that headless Service would never be
-    created, gang DNS would never resolve, and the gang could never form.
+    other. Names the native Deployment and the llm-d LeaderWorkerSet; a Grove
+    gang uses grove_pcs_name instead, which budgets for Grove's own name-length
+    validation.
     """
     return resource.child_name(_name(replica.metadata), engine.name)
+
+
+# Grove rejects a PodCliqueSet whose resource names sum past 45 characters:
+# len(pcs) + len(pcsg) + len(pclq). With "gang" and "worker" that leaves 35 for
+# the PodCliqueSet name. This reserves more than it has to, since the composed
+# pod name carries replica indices and Grove's own random suffix on top, and
+# it's tighter than the 63-character DNS label budget engine_name() uses.
+_GROVE_PCS_NAME_MAX = 24
+
+
+def grove_pcs_name(replica: v1alpha1.ModelReplica, engine: v1alpha1.Engine) -> str:
+    """The PodCliqueSet name for a gang engine.
+
+    Same shape as resource.child_name (a deterministic hash suffix keeps two
+    truncated-to-the-same-prefix names from colliding), but truncated to
+    Grove's tighter name budget rather than the general 63-character DNS
+    label limit.
+    """
+    full = f"{_name(replica.metadata)}-{engine.name}"
+    h = hashlib.sha256(full.encode()).hexdigest()[:5]
+    prefix = full[: _GROVE_PCS_NAME_MAX - len(h) - 1].rstrip("-")
+    return f"{prefix}-{h}"
 
 
 def claim_template_name(replica: v1alpha1.ModelReplica, engine: v1alpha1.Engine, member: v1alpha1.Member) -> str:
@@ -427,8 +572,9 @@ def place_pod(pod_spec: dict, replica: v1alpha1.ModelReplica, engine: v1alpha1.E
 
     Pins the pod to its member's scheduled node pool, wires it to claim its
     GPUs via DRA through the member's claim, and tolerates the GPU node taint.
-    Every pod of one member shares this - a native Deployment pod, or an llm-d
-    LWS leader or worker.
+    Every pod of one member shares this - a native Deployment pod, a
+    LeaderWorkerSet leader or worker pod, or a Grove leader or worker clique
+    pod.
 
     The pool nodeSelector is what makes the scheduler's pool choice real: the
     control-plane scheduler matched a pool and stamped the member's
