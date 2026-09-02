@@ -1,7 +1,0 @@
-# Required by aicr's layered data provider: an external --data directory
-# must carry a registry.yaml, merged with the embedded one by component
-# name. Modelplane contributes no components - the catalog exists only so
-# overlays/gke-cos.yaml can replace the embedded file of the same name.
-apiVersion: aicr.run/v1alpha2
-kind: ComponentRegistry
-components: []
