@@ -151,7 +151,7 @@
 
             # Pin Crossplane to the version e2e/run.sh uses: without a pin the
             # CLI installs the latest release
-            version_args=(--crossplane-version=2.3.4)
+            version_args=(--crossplane-version=2.4.0)
             for arg in "$@"; do
               case "$arg" in
                 --crossplane-version | --crossplane-version=*) version_args=() ;;
