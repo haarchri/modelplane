@@ -87,9 +87,7 @@ def stacks() -> list[Stack]:
     return list(_STACKS)
 
 
-def join(
-    cloud: Cloud, stack: Stack, accelerator_vendors: list[AcceleratorVendor] | None = None
-) -> list[Component]:
+def join(cloud: Cloud, stack: Stack, accelerator_vendors: list[AcceleratorVendor] | None = None) -> list[Component]:
     """Join the component lists for a cloud and stack.
 
     Fails closed, at import or test time rather than on a cluster: on an
