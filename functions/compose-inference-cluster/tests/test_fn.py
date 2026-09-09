@@ -331,6 +331,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     "namespace": "modelplane-system",
                                 },
                                 "spec": {
+                                    "cloud": "Existing",
                                     "stack": "Standard",
                                     "secrets": [
                                         {
@@ -663,6 +664,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     "namespace": "modelplane-system",
                                 },
                                 "spec": {
+                                    "cloud": "Existing",
                                     "stack": "Standard",
                                     "secrets": [
                                         {
@@ -1290,6 +1292,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     "namespace": "modelplane-system",
                                 },
                                 "spec": {
+                                    "cloud": "GKE",
                                     "stack": "Standard",
                                     "secrets": [
                                         {
@@ -1303,7 +1306,6 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                             "key": "credentials.json",
                                         },
                                     ],
-                                    "nvidiaDriverRoot": "/home/kubernetes/bin/nvidia",
                                 },
                             }
                         ),
@@ -1441,6 +1443,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "namespace": "modelplane-system",
                         },
                         "spec": {
+                            "cloud": "EKS",
                             "stack": "Standard",
                             "secrets": [
                                 {
@@ -1759,6 +1762,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "namespace": "modelplane-system",
                         },
                         "spec": {
+                            "cloud": "Nebius",
                             "stack": "Standard",
                             "secrets": [
                                 {
@@ -2066,6 +2070,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "namespace": "modelplane-system",
                         },
                         "spec": {
+                            "cloud": "AKS",
                             "stack": "Standard",
                             "secrets": [
                                 {
@@ -2234,7 +2239,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                 },
                                 "spec": {
                                     "region": "ewr",
-                                    "kubernetesVersion": "v1.36.1+3",
+                                    "kubernetesVersion": "v1.36.2+1",
                                     "nodePools": [
                                         {
                                             "name": "l40s-pool",
@@ -2320,7 +2325,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                         },
                         "spec": {
                             "region": "ewr",
-                            "kubernetesVersion": "v1.36.1+3",
+                            "kubernetesVersion": "v1.36.2+1",
                             "credentials": {
                                 "type": "ProviderConfig",
                                 "name": "my-vultr-account",
@@ -2458,6 +2463,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "namespace": "modelplane-system",
                         },
                         "spec": {
+                            "cloud": "Vultr",
                             "stack": "Standard",
                             "secrets": [
                                 {

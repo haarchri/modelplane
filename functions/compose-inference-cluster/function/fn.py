@@ -30,6 +30,8 @@ to host control-plane components (Envoy Gateway, Prometheus, etc.).
 The system pool is not exposed in the user-facing API.
 """
 
+from typing import Final, Literal
+
 import grpc
 from crossplane.function import logging, request, resource, response
 from crossplane.function.proto.v1 import run_function_pb2 as fnv1
@@ -49,17 +51,16 @@ from models.io.crossplane.protection.clusterusage import v1beta1 as clusterusage
 from models.io.crossplane.protection.usage import v1beta1 as usagev1beta1
 from models.io.k8s.apimachinery.pkg.apis.meta import v1 as metav1
 
-# Cluster source discriminator values from the XRD enum.
-CLUSTER_SOURCE_GKE = "GKE"
-CLUSTER_SOURCE_EKS = "EKS"
-CLUSTER_SOURCE_AKS = "AKS"
-CLUSTER_SOURCE_NEBIUS = "Nebius"
-CLUSTER_SOURCE_VULTR = "Vultr"
-CLUSTER_SOURCE_EXISTING = "Existing"
-
-# GKE installs the NVIDIA driver here rather than at the default / root; the
-# ServingStack passes it to the DRA driver so its kubelet plugin starts.
-_GKE_NVIDIA_DRIVER_ROOT = "/home/kubernetes/bin/nvidia"
+# Cluster source discriminator values from the XRD enum. The Literal
+# mirrors ServingStack spec.cloud, so passing a wrong or unsupported
+# cloud fails type checking; Final makes each constant a literal type.
+Cloud = Literal["GKE", "EKS", "AKS", "Nebius", "Vultr", "Existing"]
+CLUSTER_SOURCE_GKE: Final = "GKE"
+CLUSTER_SOURCE_EKS: Final = "EKS"
+CLUSTER_SOURCE_AKS: Final = "AKS"
+CLUSTER_SOURCE_NEBIUS: Final = "Nebius"
+CLUSTER_SOURCE_VULTR: Final = "Vultr"
+CLUSTER_SOURCE_EXISTING: Final = "Existing"
 
 # Condition types and reasons for the InferenceCluster XR.
 CONDITION_TYPE_CLUSTER_READY = "ClusterReady"
@@ -285,7 +286,7 @@ class Composer:
         backend_secrets = self.resolve_gke_backend_secrets(gke_ready=gke_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
             if backend_secrets:
-                self.compose_serving_stack(backend_secrets, nvidia_driver_root=_GKE_NVIDIA_DRIVER_ROOT)
+                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_GKE)
             self.compose_gke_usage()
 
         if gke_ready:
@@ -323,7 +324,7 @@ class Composer:
         backend_secrets = self.resolve_eks_backend_secrets(eks_ready=eks_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
             if backend_secrets:
-                self.compose_serving_stack(backend_secrets)
+                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_EKS)
             self.compose_eks_usage()
 
         if eks_ready:
@@ -359,7 +360,7 @@ class Composer:
         backend_secrets = self.resolve_aks_backend_secrets(aks_ready=aks_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
             if backend_secrets:
-                self.compose_serving_stack(backend_secrets)
+                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_AKS)
             self.compose_aks_usage()
 
         if aks_ready:
@@ -405,7 +406,7 @@ class Composer:
         backend_secrets = self.resolve_nebius_backend_secrets(nebius_ready=nebius_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
             if backend_secrets:
-                self.compose_serving_stack(backend_secrets)
+                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_NEBIUS)
             self.compose_nebius_usage()
 
         if nebius_ready:
@@ -441,7 +442,7 @@ class Composer:
         backend_secrets = self.resolve_vultr_backend_secrets(vultr_ready=vultr_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
             if backend_secrets:
-                self.compose_serving_stack(backend_secrets)
+                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_VULTR)
             self.compose_vultr_usage()
 
         if vultr_ready:
@@ -476,7 +477,7 @@ class Composer:
                 # type defaults to GCP in the XRD; coalesce so it's never None.
                 ssv1alpha1.Secret(type=identity.type or _IDENTITY_TYPE_GCP, name=identity.name, key=identity.key),
             )
-        self.compose_serving_stack(backend_secrets)
+        self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_EXISTING)
 
         self.write_status(self.gpu_pools())
         self.derive_conditions(cluster_ready=True)
@@ -484,18 +485,20 @@ class Composer:
     def compose_serving_stack(
         self,
         backend_secrets: list[ssv1alpha1.Secret],
-        nvidia_driver_root: str | None = None,
+        cloud: Cloud,
     ) -> None:
         """Compose a ServingStack XR with the given secrets.
 
-        nvidia_driver_root is set for provisioned GKE clusters, where the NVIDIA
-        driver lives off the default / path; the serving stack consumes it
-        without inspecting its own cloud. Left None for EKS / existing clusters,
-        which keep the ServingStack's default root.
+        cloud names the cluster's source (this XR's spec.cluster.source)
+        and selects the component list the serving stack installs,
+        including cloud specifics like where the node image puts the
+        NVIDIA driver.
         """
-        spec = ssv1alpha1.Spec(secrets=backend_secrets, stack=self.xr.spec.stack)
-        if nvidia_driver_root is not None:
-            spec.nvidiaDriverRoot = nvidia_driver_root
+        spec = ssv1alpha1.Spec(
+            secrets=backend_secrets,
+            stack=self.xr.spec.stack,
+            cloud=cloud,
+        )
         resource.update(
             self.rsp.desired.resources[BACKEND_RESOURCE_KEY],
             ssv1alpha1.ServingStack(
