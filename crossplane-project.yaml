@@ -13,7 +13,7 @@ spec:
   crossplane:
     version: '>=v2.3.0'
   schemas:
-    languages: [python]
+    languages: [python, go]
   functions:
   - source: Tarball
     tarball:
