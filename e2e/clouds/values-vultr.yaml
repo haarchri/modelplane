@@ -9,7 +9,7 @@
 cloud: Vultr
 slug: vultr
 expectedDaemonsets: >-
-  nvidia-dra-driver/mp-dra-driver-nvidia-gpu-kubelet-plugin=2
+  nvidia-dra-driver/dra-driver-nvidia-gpu-kubelet-plugin=2
   monitoring/mp-kube-prometheus-stack-prometheus-node-exporter=3
 node:
   gpuTaintValue: "true"
