@@ -216,6 +216,36 @@ kubectl --context "$cpctx" patch provider.pkg.crossplane.io upbound-provider-hel
 } | kubectl --context "$cpctx" apply -f -
 
 if [ -n "$cloud" ]; then
+	# Cloud mode composes exactly one XR, and its pipeline calls two
+	# functions: compose-serving-stack, then compose-usages (see
+	# apis/servingstacks/composition.yaml). Park every other function at
+	# zero replicas to give the serving-stack install the runner's memory:
+	# a Deployment with zero desired replicas still reports Available, so
+	# the package revisions stay healthy — the same mechanism that keeps
+	# the safe-start cloud providers dormant. runtimeConfigRef binds like
+	# the provider-helm patch above: the runtime reconciler applies it to
+	# the already-installed revision. The model e2e keeps every function:
+	# its path composes most of them.
+	log "Scaling composition functions the ServingStack pipeline doesn't call to zero"
+	kubectl --context "$cpctx" apply -f - <<'DRC'
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: scaled-to-zero
+spec:
+  deploymentTemplate:
+    spec:
+      replicas: 0
+      selector: {}
+      template: {}
+DRC
+	kubectl --context "$cpctx" get functions.pkg.crossplane.io -o name |
+		grep -Ev 'compose-serving-stack|compose-usages' |
+		while read -r fn; do
+			kubectl --context "$cpctx" patch "$fn" --type merge \
+				-p '{"spec":{"runtimeConfigRef":{"apiVersion":"pkg.crossplane.io/v1beta1","kind":"DeploymentRuntimeConfig","name":"scaled-to-zero"}}}'
+		done
+
 	# One Chainsaw run applies the fake GPU nodes and the ServingStack XR,
 	# waits for the XR Ready, and audits pod placement/tolerations — so cloud
 	# mode always verifies; there is no fire-and-forget variant to drift from
