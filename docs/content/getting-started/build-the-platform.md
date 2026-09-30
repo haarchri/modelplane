@@ -47,6 +47,10 @@ against this capacity without knowing which cluster it runs on.
 - A Vultr account with access to GPU plans
 - A Vultr API key
 {{< /tab >}}
+{{< tab "Civo" >}}
+- A Civo account with access to GPU sizes
+- A Civo API key
+{{< /tab >}}
 {{< /tabs >}}
 
 ## Configure cloud credentials
@@ -160,6 +164,25 @@ Apply the `ClusterProviderConfig` referencing your secret:
 
 {{< manifests "getting-started/clusterproviderconfig-vultr.yaml" >}}
 {{< /tab >}}
+
+{{< tab "Civo" >}}
+Create a Kubernetes secret from your API key. The provider parses the
+JSON `creds` key; the plain `api-key` key is copied to each cluster for
+the Kubernetes cluster autoscaler:
+
+{{< editCode >}}
+```bash
+kubectl create secret generic civo-credentials \
+  --from-literal=creds='{"token": "$@<civo-api-key>$@"}' \
+  --from-literal=api-key=$@<civo-api-key>$@ \
+  -n crossplane-system
+```
+{{< /editCode >}}
+
+Apply the `ClusterProviderConfig` referencing your secret:
+
+{{< manifests "getting-started/clusterproviderconfig-civo.yaml" >}}
+{{< /tab >}}
 {{</tabs>}}
 
 ## Publish hardware and register the cluster
@@ -223,6 +246,18 @@ Modelplane provisions the cluster. This takes about 15 minutes:
 kubectl wait --for=condition=Ready ic/vultr-ewr --timeout=20m
 ```
 {{< /tab >}}
+
+{{< tab "Civo" >}}
+{{< manifests "getting-started/civo/platform.yaml" >}}
+
+Modelplane provisions the cluster. This takes about 15 minutes (Civo GPU
+node images don't include the NVIDIA driver, so the inference stack's
+GPU Operator installs it on first boot):
+
+```bash
+kubectl wait --for=condition=Ready ic/civo-nyc1 --timeout=20m
+```
+{{< /tab >}}
 {{< /tabs >}}
 
 {{< hint "note" >}}
@@ -275,6 +310,9 @@ for an example with TLS and authentication.
 {{< /tab >}}
 {{< tab "Vultr" >}}
 {{< manifests "getting-started/vultr/inference-gateway.yaml" >}}
+{{< /tab >}}
+{{< tab "Civo" >}}
+{{< manifests "getting-started/civo/inference-gateway.yaml" >}}
 {{< /tab >}}
 {{< /tabs >}}
 

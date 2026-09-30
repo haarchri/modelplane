@@ -22,7 +22,7 @@ stack's own file. See design/serving-stack-generation.md.
 """
 
 from function.stacks import common, components, dynamo, standard
-from function.stacks.clouds import existing, nebius, vultr
+from function.stacks.clouds import civo, existing, nebius, vultr
 from function.stacks.clouds.generated.aicr import aks, eks, gke
 from function.stacks.components import Chart, Cloud, Component, Manifests, Stack
 
@@ -47,6 +47,7 @@ _CLOUDS: dict[Cloud, list[Component]] = {
     "GKE": gke.COMPONENTS,
     "Nebius": nebius.COMPONENTS,
     "Vultr": vultr.COMPONENTS,
+    "Civo": civo.COMPONENTS,
     "Existing": existing.COMPONENTS,
 }
 

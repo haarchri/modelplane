@@ -1,0 +1,13 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: civoclusters.infrastructure.modelplane.ai
+spec:
+  compositeTypeRef:
+    apiVersion: infrastructure.modelplane.ai/v1alpha1
+    kind: CivoCluster
+  mode: Pipeline
+  pipeline:
+  - functionRef:
+      name: modelplane-modelplanecompose-civo-cluster
+    step: compose-civo-cluster

@@ -2773,6 +2773,398 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+        # --- Case 16: Civo first pass composes the CivoCluster XR only.
+        # minNodeCount stays unset so the pool's autoscaling floor defaults
+        # to its node count downstream. ---
+        inference_class_l40s_civo = {
+            "apiVersion": "modelplane.ai/v1alpha1",
+            "kind": "InferenceClass",
+            "metadata": {"name": "gpu-l40s-civo"},
+            "spec": {
+                "devices": [
+                    {
+                        "name": "gpu",
+                        "claim": "DRA",
+                        "driver": "gpu.nvidia.com",
+                        "deviceClassName": "gpu.nvidia.com",
+                        "count": 1,
+                        "capacity": {"memory": {"value": "46068Mi"}},
+                    },
+                ],
+                "provisioning": {
+                    "provider": "Civo",
+                    "civo": {
+                        "size": "an.g1.l40s.kube.x1",
+                        "accelerator": {"type": "nvidia-l40s", "count": 1},
+                    },
+                },
+            },
+        }
+        class_selector_civo = fnv1.ResourceSelector(
+            api_version="modelplane.ai/v1alpha1",
+            kind="InferenceClass",
+            match_name="gpu-l40s-civo",
+        )
+
+        req16 = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        v1alpha1.InferenceCluster(
+                            metadata=metav1.ObjectMeta(
+                                name="test-cluster",
+                                namespace="modelplane-system",
+                            ),
+                            spec=v1alpha1.Spec(
+                                cluster=v1alpha1.Cluster(
+                                    source="Civo",
+                                    civo=v1alpha1.Civo(region="LON1"),
+                                ),
+                                nodePools=[
+                                    v1alpha1.NodePool(
+                                        name="l40s-pool",
+                                        className="gpu-l40s-civo",
+                                        nodeCount=2,
+                                        maxNodeCount=4,
+                                    ),
+                                ],
+                            ),
+                        ).model_dump(exclude_none=True, mode="json"),
+                    ),
+                ),
+            ),
+        )
+        req16.required_resources["class-gpu-l40s-civo"].items.append(
+            fnv1.Resource(resource=resource.dict_to_struct(inference_class_l40s_civo)),
+        )
+
+        want16 = fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        {
+                            "status": {
+                                "providerConfigRef": {
+                                    "name": "test-cluster-cluster-kubeconfig-d0f89",
+                                },
+                                "namespace": "modelplane-system",
+                                "gpuPools": [
+                                    {
+                                        "name": "l40s-pool",
+                                        "nodes": 4,
+                                        "devices": [
+                                            {
+                                                "name": "gpu",
+                                                "claim": "DRA",
+                                                "driver": "gpu.nvidia.com",
+                                                "deviceClassName": "gpu.nvidia.com",
+                                                "count": 1,
+                                                "capacity": {"memory": {"value": "46068Mi"}},
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    ),
+                ),
+                resources={
+                    "civo-cluster": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                                "kind": "CivoCluster",
+                                "metadata": {
+                                    "name": "test-cluster",
+                                    "namespace": "modelplane-system",
+                                },
+                                "spec": {
+                                    "region": "LON1",
+                                    "nodePools": [
+                                        {
+                                            "name": "l40s-pool",
+                                            "role": "GPU",
+                                            "size": "an.g1.l40s.kube.x1",
+                                            "nodeCount": 2,
+                                            "maxNodeCount": 4,
+                                            "gpu": {
+                                                "acceleratorType": "nvidia-l40s",
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        ),
+                    ),
+                },
+            ),
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="Provisioning",
+                ),
+                fnv1.Condition(
+                    type="BackendReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="WaitingForCluster",
+                ),
+            ],
+            context=structpb.Struct(),
+        )
+        want16.requirements.resources["class-gpu-l40s-civo"].CopyFrom(class_selector_civo)
+
+        # --- Case 16b: Civo credentials pass through to the CivoCluster
+        # spec, mirroring the Vultr passthrough. ---
+        req_creds_civo = fnv1.RunFunctionRequest()
+        req_creds_civo.CopyFrom(req16)
+        req_creds_civo.observed.composite.CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    v1alpha1.InferenceCluster(
+                        metadata=metav1.ObjectMeta(
+                            name="test-cluster",
+                            namespace="modelplane-system",
+                        ),
+                        spec=v1alpha1.Spec(
+                            cluster=v1alpha1.Cluster(
+                                source="Civo",
+                                civo=v1alpha1.Civo(
+                                    region="LON1",
+                                    credentials=v1alpha1.Credentials(
+                                        type="ProviderConfig",
+                                        name="my-civo-account",
+                                    ),
+                                ),
+                            ),
+                            nodePools=[
+                                v1alpha1.NodePool(
+                                    name="l40s-pool",
+                                    className="gpu-l40s-civo",
+                                    nodeCount=2,
+                                    maxNodeCount=4,
+                                ),
+                            ],
+                        ),
+                    ).model_dump(exclude_none=True, mode="json"),
+                ),
+            ),
+        )
+
+        want_creds_civo = fnv1.RunFunctionResponse()
+        want_creds_civo.CopyFrom(want16)
+        want_creds_civo.desired.resources["civo-cluster"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                        "kind": "CivoCluster",
+                        "metadata": {
+                            "name": "test-cluster",
+                            "namespace": "modelplane-system",
+                        },
+                        "spec": {
+                            "region": "LON1",
+                            "credentials": {
+                                "type": "ProviderConfig",
+                                "name": "my-civo-account",
+                            },
+                            "nodePools": [
+                                {
+                                    "name": "l40s-pool",
+                                    "role": "GPU",
+                                    "size": "an.g1.l40s.kube.x1",
+                                    "nodeCount": 2,
+                                    "maxNodeCount": 4,
+                                    "gpu": {
+                                        "acceleratorType": "nvidia-l40s",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ),
+            ),
+        )
+
+        # --- Case 17: Civo cluster ready - kubeconfig observed on the
+        # CivoCluster status. The Civo kubeconfig embeds static client
+        # certificates, so the ClusterProviderConfig carries no identity
+        # (unlike Nebius). The function composes the ServingStack backend
+        # with the kubeconfig and emits the Usage that blocks CivoCluster
+        # deletion until the ServingStack is gone. CivoCluster reports no
+        # cache StorageClass, so status.cache stays unset. ---
+        req17 = fnv1.RunFunctionRequest()
+        req17.CopyFrom(req16)
+        req17.observed.resources["civo-cluster"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                        "kind": "CivoCluster",
+                        "metadata": {"name": "test-cluster", "namespace": "modelplane-system"},
+                        "spec": {
+                            "region": "LON1",
+                            "nodePools": [
+                                {
+                                    "name": "l40s-pool",
+                                    "role": "GPU",
+                                    "size": "an.g1.l40s.kube.x1",
+                                    "nodeCount": 2,
+                                },
+                            ],
+                        },
+                        "status": {
+                            "conditions": [
+                                {
+                                    "type": "Ready",
+                                    "status": "True",
+                                    "reason": "Available",
+                                    "lastTransitionTime": "2024-01-01T00:00:00Z",
+                                },
+                            ],
+                            "secrets": [
+                                {
+                                    "type": "Kubeconfig",
+                                    "name": "test-cluster-kubeconfig-abcde",
+                                    "key": "kubeconfig",
+                                },
+                            ],
+                        },
+                    }
+                ),
+            ),
+        )
+
+        want17 = fnv1.RunFunctionResponse()
+        want17.CopyFrom(want16)
+        want17.desired.resources["civo-cluster"].ready = fnv1.READY_TRUE
+        want17.desired.composite.CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "status": {
+                            "providerConfigRef": {
+                                "name": "test-cluster-cluster-kubeconfig-d0f89",
+                            },
+                            "namespace": "modelplane-system",
+                            "gpuPools": [
+                                {
+                                    "name": "l40s-pool",
+                                    "nodes": 4,
+                                    "devices": [
+                                        {
+                                            "name": "gpu",
+                                            "claim": "DRA",
+                                            "driver": "gpu.nvidia.com",
+                                            "deviceClassName": "gpu.nvidia.com",
+                                            "count": 1,
+                                            "capacity": {"memory": {"value": "46068Mi"}},
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ),
+            ),
+        )
+        want17.desired.resources["cluster-provider-config-kubernetes"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "kubernetes.m.crossplane.io/v1alpha1",
+                        "kind": "ClusterProviderConfig",
+                        "metadata": {"name": "test-cluster-cluster-kubeconfig-d0f89"},
+                        "spec": {
+                            "credentials": {
+                                "source": "Secret",
+                                "secretRef": {
+                                    "namespace": "modelplane-system",
+                                    "name": "test-cluster-kubeconfig-abcde",
+                                    "key": "kubeconfig",
+                                },
+                            },
+                        },
+                    }
+                ),
+                ready=fnv1.READY_TRUE,
+            ),
+        )
+        want17.desired.resources["serving-stack"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                        "kind": "ServingStack",
+                        "metadata": {
+                            "name": "test-cluster-serving-stack-fd00b",
+                            "namespace": "modelplane-system",
+                        },
+                        "spec": {
+                            "cloud": "Civo",
+                            "gateway": {"hostname": _GATEWAY_HOSTNAME},
+                            "stack": "Standard",
+                            "secrets": [
+                                {
+                                    "type": "Kubeconfig",
+                                    "name": "test-cluster-kubeconfig-abcde",
+                                    "key": "kubeconfig",
+                                },
+                            ],
+                        },
+                    }
+                ),
+            ),
+        )
+        want17.desired.resources["usage-civo-by-backend"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "protection.crossplane.io/v1beta1",
+                        "kind": "Usage",
+                        "metadata": {"namespace": "modelplane-system"},
+                        "spec": {
+                            "of": {
+                                "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                                "kind": "CivoCluster",
+                                "resourceSelector": {"matchControllerRef": True},
+                            },
+                            "by": {
+                                "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                                "kind": "ServingStack",
+                                "resourceSelector": {"matchControllerRef": True},
+                            },
+                            "replayDeletion": True,
+                        },
+                    }
+                ),
+                ready=fnv1.READY_TRUE,
+            ),
+        )
+        del want17.conditions[:]
+        want17.conditions.extend(
+            [
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_TRUE,
+                    reason="ClusterRunning",
+                ),
+                fnv1.Condition(
+                    type="BackendReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="Installing",
+                ),
+            ]
+        )
+        want17.results.append(
+            fnv1.Result(
+                severity=fnv1.SEVERITY_NORMAL,
+                message="Civo cluster ready, composing backend",
+            )
+        )
+
         # Every compose path emits the ModelReplica guard requirement.
         for want in (
             want1,
@@ -2791,6 +3183,9 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             want14,
             want_creds_vultr,
             want15,
+            want16,
+            want_creds_civo,
+            want17,
         ):
             want.requirements.resources["gateways"].CopyFrom(_gateways_selector())
             want.requirements.resources["model-replicas"].CopyFrom(_replicas_selector("test-cluster"))
@@ -2958,6 +3353,9 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             (req14, want14, fn._ACTIVATE_VULTR),
             (req_creds_vultr, want_creds_vultr, fn._ACTIVATE_VULTR),
             (req15, want15, fn._ACTIVATE_VULTR),
+            (req16, want16, fn._ACTIVATE_CIVO),
+            (req_creds_civo, want_creds_civo, fn._ACTIVATE_CIVO),
+            (req17, want17, fn._ACTIVATE_CIVO),
         ]:
             _observe_activated(req, kinds)
             _want_activation(want, kinds)
@@ -3027,6 +3425,17 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 name="Vultr cluster ready composes CPC without identity, ServingStack, and Usage",
                 req=req15,
                 want=want15,
+            ),
+            Case(name="Civo cluster first pass composes CivoCluster XR only", req=req16, want=want16),
+            Case(
+                name="Civo credentials pass through to CivoCluster spec",
+                req=req_creds_civo,
+                want=want_creds_civo,
+            ),
+            Case(
+                name="Civo cluster ready composes CPC without identity, ServingStack, and Usage",
+                req=req17,
+                want=want17,
             ),
             *guard_cases,
         ]

@@ -114,12 +114,31 @@ class AcceleratorModel(BaseModel):
     count: conint(ge=1, le=16)
     type: constr(min_length=1, max_length=63)
     """
+    GPU accelerator type (e.g. nvidia-l40s, nvidia-a100). Informational - reported on the consuming InferenceCluster's status.
+    """
+
+
+class Civo(BaseModel):
+    accelerator: AcceleratorModel
+    """
+    GPU accelerator to attach when provisioning the node pool. Provisioning input only: the scheduler matches against spec.devices, not this block.
+    """
+    size: constr(min_length=1, max_length=63)
+    """
+    Civo Kubernetes size ID (e.g. an.g1.l40s.kube.x1). The size determines the GPU model and count; the accelerator block below is informational.
+    """
+
+
+class AcceleratorModel1(BaseModel):
+    count: conint(ge=1, le=16)
+    type: constr(min_length=1, max_length=63)
+    """
     GPU accelerator type (e.g. nvidia-a10g, nvidia-h100). Informational - reported on the consuming InferenceCluster's status.
     """
 
 
 class Eks(BaseModel):
-    accelerator: AcceleratorModel
+    accelerator: AcceleratorModel1
     """
     GPU accelerator to attach when provisioning the node group. Provisioning input only: the scheduler matches against spec.devices, not this block.
     """
@@ -130,7 +149,7 @@ class Eks(BaseModel):
     """
 
 
-class AcceleratorModel1(BaseModel):
+class AcceleratorModel2(BaseModel):
     count: conint(ge=1, le=16)
     type: constr(min_length=1, max_length=63)
     """
@@ -139,7 +158,7 @@ class AcceleratorModel1(BaseModel):
 
 
 class Gke(BaseModel):
-    accelerator: AcceleratorModel1
+    accelerator: AcceleratorModel2
     """
     GPU accelerator to attach when provisioning the node pool. Provisioning input only: the scheduler matches against spec.devices, not this block, so count here is the GCP machine's GPU count and need not be restated in devices.
     """
@@ -147,7 +166,7 @@ class Gke(BaseModel):
     machineType: constr(min_length=1)
 
 
-class AcceleratorModel2(BaseModel):
+class AcceleratorModel3(BaseModel):
     count: conint(ge=1, le=16)
     type: constr(min_length=1, max_length=63)
     """
@@ -156,7 +175,7 @@ class AcceleratorModel2(BaseModel):
 
 
 class Nebius(BaseModel):
-    accelerator: AcceleratorModel2
+    accelerator: AcceleratorModel3
     """
     GPU accelerator to attach when provisioning the node group. Provisioning input only: the scheduler matches against spec.devices, not this block.
     """
@@ -175,7 +194,7 @@ class Nebius(BaseModel):
     """
 
 
-class AcceleratorModel3(BaseModel):
+class AcceleratorModel4(BaseModel):
     count: conint(ge=1, le=16)
     type: constr(min_length=1, max_length=63)
     """
@@ -184,7 +203,7 @@ class AcceleratorModel3(BaseModel):
 
 
 class Vultr(BaseModel):
-    accelerator: AcceleratorModel3
+    accelerator: AcceleratorModel4
     """
     GPU accelerator to attach when provisioning the node pool. Provisioning input only: the scheduler matches against spec.devices, not this block.
     """
@@ -196,10 +215,11 @@ class Vultr(BaseModel):
 
 class Provisioning(BaseModel):
     aks: Aks | None = None
+    civo: Civo | None = None
     eks: Eks | None = None
     gke: Gke | None = None
     nebius: Nebius | None = None
-    provider: Literal['GKE', 'EKS', 'AKS', 'Nebius', 'Vultr']
+    provider: Literal['GKE', 'EKS', 'AKS', 'Nebius', 'Vultr', 'Civo']
     vultr: Vultr | None = None
 
 

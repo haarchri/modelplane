@@ -1,0 +1,247 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: civoclusters.infrastructure.modelplane.ai
+spec:
+  group: infrastructure.modelplane.ai
+  names:
+    categories:
+    - crossplane
+    - modelplane
+    - infrastructure
+    kind: CivoCluster
+    plural: civoclusters
+    shortNames:
+    - cks
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    additionalPrinterColumns:
+    - name: REGION
+      type: string
+      jsonPath: .spec.region
+    schema:
+      openAPIV3Schema:
+        description: >-
+          A CivoCluster provisions a Civo Kubernetes (k3s) cluster with a
+          dedicated network and firewall, and node pools for GPU inference
+          and system workloads. It outputs a Secret containing the cluster
+          kubeconfig. The kubeconfig embeds static client certificates, so
+          consumers need nothing beyond it to reach the cluster. Civo has
+          no server-side node pool autoscaler; pools with maxNodeCount set
+          are scaled by the Kubernetes cluster autoscaler installed on the
+          cluster. The system pool is a fixed inline pool on the cluster
+          resource, honored at creation time only.
+        properties:
+          spec:
+            description: CivoClusterSpec defines the desired state of CivoCluster.
+            required:
+            - region
+            - nodePools
+            properties:
+              region:
+                type: string
+                description: >-
+                  Civo region for the cluster (e.g. LON1, NYC1, FRA1). GPU
+                  sizes vary by region; list availability with civo region ls
+                  and civo kubernetes size.
+                minLength: 1
+                maxLength: 32
+              kubernetesVersion:
+                type: string
+                description: >-
+                  Civo Kubernetes (k3s) version. Civo requires an exact
+                  version string including the k3s build suffix (e.g.
+                  1.34.1-k3s1); list current versions with civo kubernetes
+                  versions. Choose 1.34 or newer so Dynamic Resource
+                  Allocation (how GPUs bind to pods) is generally available.
+                  Defaults to Civo's current default version.
+                minLength: 1
+                maxLength: 32
+              cni:
+                type: string
+                default: flannel
+                description: >-
+                  CNI plugin for the cluster. Civo supports flannel (its
+                  default) and cilium. Set at creation time only.
+                enum:
+                - flannel
+                - cilium
+              credentials:
+                type: object
+                description: >-
+                  Civo ProviderConfig or ClusterProviderConfig used to
+                  authenticate to the Civo API. Defaults to the
+                  ClusterProviderConfig named default.
+                properties:
+                  type:
+                    type: string
+                    default: ClusterProviderConfig
+                    enum:
+                    - ProviderConfig
+                    - ClusterProviderConfig
+                  name:
+                    type: string
+                    default: default
+                    minLength: 1
+                    maxLength: 253
+              apiKeySecretRef:
+                type: object
+                description: >-
+                  Reference to a Secret key holding a plain Civo API token.
+                  The Kubernetes cluster autoscaler installed for pools with
+                  maxNodeCount set scales node pools through the Civo API,
+                  and its token is copied to the workload cluster from this
+                  key. The provider's own credentials Secret holds JSON, so
+                  the plain token is a separate key; the getting started
+                  guide creates both keys in one Secret. Defaults to the
+                  api-key key of the civo-credentials Secret in the
+                  crossplane-system namespace.
+                properties:
+                  name:
+                    type: string
+                    default: civo-credentials
+                    minLength: 1
+                    maxLength: 253
+                  namespace:
+                    type: string
+                    default: crossplane-system
+                    minLength: 1
+                    maxLength: 63
+                  key:
+                    type: string
+                    default: api-key
+                    minLength: 1
+                    maxLength: 253
+              nodePools:
+                type: array
+                description: >-
+                  Node pools for the cluster. At least one System pool is
+                  required for controllers and infrastructure workloads.
+                minItems: 1
+                maxItems: 8
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys:
+                - name
+                items:
+                  type: object
+                  required:
+                  - name
+                  - role
+                  - size
+                  x-kubernetes-validations:
+                  - rule: "self.role != 'GPU' || has(self.gpu)"
+                    message: gpu is required when role is GPU.
+                  - rule: "!has(self.minNodeCount) || has(self.maxNodeCount)"
+                    message: maxNodeCount is required when minNodeCount is set.
+                  properties:
+                    name:
+                      type: string
+                      description: >-
+                        Unique name for this node pool. Used as the pool's
+                        label in the Civo cluster.
+                      maxLength: 40
+                      minLength: 1
+                    role:
+                      type: string
+                      description: >-
+                        Determines what workloads this pool runs. System
+                        pools host controllers, gateways, and infrastructure.
+                        GPU pools host inference workloads and are tainted to
+                        exclude non-GPU pods.
+                      enum:
+                      - System
+                      - GPU
+                    size:
+                      type: string
+                      description: >-
+                        Civo instance size for the pool's nodes (e.g.
+                        an.g1.l40s.kube.x1, g4p.kube.small). This is the
+                        instance type used by other clouds; list sizes with
+                        civo kubernetes size.
+                      minLength: 1
+                      maxLength: 63
+                    nodeCount:
+                      type: integer
+                      default: 1
+                      description: >-
+                        Number of nodes. Fixed unless maxNodeCount enables
+                        autoscaling.
+                      minimum: 1
+                      maximum: 1000
+                    minNodeCount:
+                      type: integer
+                      description: >-
+                        Minimum number of nodes for autoscaling. Defaults to
+                        nodeCount when maxNodeCount is set. Requires
+                        maxNodeCount.
+                      minimum: 1
+                      maximum: 1000
+                    maxNodeCount:
+                      type: integer
+                      description: >-
+                        Maximum number of nodes for autoscaling. When set the
+                        node pool autoscales between minNodeCount (or
+                        nodeCount) and this. Civo has no server-side
+                        autoscaler, so the Kubernetes cluster autoscaler is
+                        installed on the cluster to drive the pool's node
+                        count through the Civo API. Omit for fixed-size
+                        pools.
+                      minimum: 1
+                      maximum: 1000
+                    gpu:
+                      type: object
+                      description: >-
+                        GPU configuration. Required when role is GPU.
+                      required:
+                      - acceleratorType
+                      properties:
+                        acceleratorType:
+                          type: string
+                          description: >-
+                            GPU accelerator type (e.g. nvidia-l40s,
+                            nvidia-a100). Used to label GPU nodes; the actual
+                            GPU and count are determined by the size.
+                          minLength: 1
+                          maxLength: 63
+            type: object
+          status:
+            description: CivoClusterStatus defines the observed state of CivoCluster.
+            properties:
+              secrets:
+                type: array
+                description: >-
+                  Secrets produced by this cluster. Consumers use these to
+                  authenticate to the cluster. All secrets are in the same
+                  namespace as this CivoCluster.
+                items:
+                  type: object
+                  required:
+                  - type
+                  - name
+                  - key
+                  properties:
+                    type:
+                      type: string
+                      description: >-
+                        The type of credential this secret contains.
+                        Kubeconfig contains a kubeconfig file with the
+                        cluster endpoint, CA certificate, and static client
+                        certificates.
+                      enum:
+                      - Kubeconfig
+                    name:
+                      type: string
+                      description: Name of the Secret.
+                      maxLength: 253
+                    key:
+                      type: string
+                      description: >-
+                        Key within the Secret that holds the credential data.
+                      maxLength: 253
+            type: object
+        required:
+        - spec
+        type: object
+    served: true

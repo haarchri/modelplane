@@ -49,12 +49,14 @@ spec:
                   message: spec.cluster.nebius is required when spec.cluster.source is Nebius.
                 - rule: "self.source != 'Vultr' || has(self.vultr)"
                   message: spec.cluster.vultr is required when spec.cluster.source is Vultr.
+                - rule: "self.source != 'Civo' || has(self.civo)"
+                  message: spec.cluster.civo is required when spec.cluster.source is Civo.
                 properties:
                   source:
                     type: string
                     description: >-
                       Cluster provisioning method.
-                    enum: [GKE, EKS, AKS, Nebius, Vultr, Existing]
+                    enum: [GKE, EKS, AKS, Nebius, Vultr, Civo, Existing]
                   existing:
                     type: object
                     description: >-
@@ -297,6 +299,50 @@ spec:
                         description: >-
                           Vultr ProviderConfig or ClusterProviderConfig used to
                           authenticate to the Vultr API. Defaults to the
+                          ClusterProviderConfig named default.
+                        properties:
+                          type:
+                            type: string
+                            default: ClusterProviderConfig
+                            enum:
+                            - ProviderConfig
+                            - ClusterProviderConfig
+                          name:
+                            type: string
+                            default: default
+                            minLength: 1
+                            maxLength: 253
+                  civo:
+                    type: object
+                    description: >-
+                      Civo Kubernetes (k3s) cluster configuration. Required
+                      when source is Civo.
+                    required: [region]
+                    properties:
+                      region:
+                        type: string
+                        description: >-
+                          Civo region for the cluster (e.g. LON1, NYC1,
+                          FRA1). GPU sizes vary by region.
+                        minLength: 1
+                        maxLength: 32
+                      kubernetesVersion:
+                        type: string
+                        description: >-
+                          Civo Kubernetes (k3s) version. Civo requires an
+                          exact version string including the k3s build
+                          suffix; list current versions with civo kubernetes
+                          versions. Choose 1.34 or newer so Dynamic Resource
+                          Allocation (how GPUs bind to pods) is generally
+                          available. Defaults to Civo's current default
+                          version.
+                        minLength: 1
+                        maxLength: 32
+                      credentials:
+                        type: object
+                        description: >-
+                          Civo ProviderConfig or ClusterProviderConfig used to
+                          authenticate to the Civo API. Defaults to the
                           ClusterProviderConfig named default.
                         properties:
                           type:

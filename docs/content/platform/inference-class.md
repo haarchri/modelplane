@@ -77,6 +77,9 @@ GPU.
 {{< tab "Vultr L40S" >}}
 {{< manifests "concepts/inference-class-vultr-l40s.yaml" >}}
 {{< /tab >}}
+{{< tab "Civo L40S" >}}
+{{< manifests "concepts/inference-class-civo-l40s.yaml" >}}
+{{< /tab >}}
 {{< tab "H100 bare-metal" >}}
 {{< manifests "concepts/inference-class-h100-byo.yaml" >}}
 {{< /tab >}}

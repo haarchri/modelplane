@@ -1,0 +1,45 @@
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceClass
+metadata:
+  name: l40s-1x
+spec:
+  # A 1x L40S Kubernetes size. Civo GPU sizes are region-gated; list what
+  # your account offers with `civo kubernetes size` before picking
+  # another size.
+  description: "Civo an.g1.l40s.kube.x1, 1x NVIDIA L40S 48GB"
+  provisioning:
+    provider: Civo
+    civo:
+      size: an.g1.l40s.kube.x1
+      accelerator:
+        type: nvidia-l40s
+        count: 1
+  devices:
+  - name: gpu
+    claim: DRA
+    driver: gpu.nvidia.com
+    deviceClassName: gpu.nvidia.com
+    count: 1
+    attributes:
+      architecture: { string: Ada Lovelace }
+      cudaComputeCapability: { version: "8.9.0" }
+    capacity:
+      memory: { value: "46068Mi" }   # L40S's real reported VRAM (not the nominal 48GB)
+---
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceCluster
+metadata:
+  name: civo-nyc1
+  labels:
+    modelplane.ai/region: nyc1
+spec:
+  cluster:
+    source: Civo
+    civo:
+      region: NYC1
+  nodePools:
+  - name: gpu-l40s
+    className: l40s-1x
+    nodeCount: 1
+    minNodeCount: 1
+    maxNodeCount: 1

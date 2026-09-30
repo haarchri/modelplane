@@ -1,0 +1,40 @@
+# An InferenceClass describing Civo's an.g1.l40s.kube.x1 size with
+# 1x NVIDIA L40S.
+#
+# The provisioning block tells Modelplane how to create a node pool of
+# this class on Civo Kubernetes. Civo sizes nodes by Kubernetes size ID;
+# the size determines the GPU, vCPU, and memory shape of each node. The
+# devices block describes what hardware a node of this class has,
+# DRA-style - used by the scheduler to match models to clusters, and to
+# form DRA ResourceClaims for claim: DRA devices.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceClass
+metadata:
+  name: civo-l40s-1x
+spec:
+  description: "Civo an.g1.l40s.kube.x1, 1x NVIDIA L40S 48GB"
+  provisioning:
+    provider: Civo
+    civo:
+      # GPU sizes are region-gated: at the time of writing L40S sizes are
+      # offered in NYC1 while LON1 offers A100 SXM. List the sizes a
+      # region offers via the API:
+      #   curl -s "https://api.civo.com/v2/sizes?region=NYC1" \
+      #     -H "Authorization: Bearer $CIVO_API_KEY" | jq '.[].name'
+      size: an.g1.l40s.kube.x1
+      accelerator:
+        type: nvidia-l40s
+        count: 1
+  devices:
+  - name: gpu
+    claim: DRA
+    driver: gpu.nvidia.com
+    deviceClassName: gpu.nvidia.com
+    count: 1
+    attributes:
+      architecture: { string: Ada Lovelace }
+      cudaComputeCapability: { version: "8.9.0" }
+    capacity:
+      # The L40S's real usable VRAM, what the NVIDIA DRA driver reports,
+      # not its nominal 48GB. A nodeSelector asking for >= 48Gi would never bind.
+      memory: { value: "46068Mi" }

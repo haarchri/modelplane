@@ -1306,12 +1306,25 @@ _HAND_WRITTEN = frozenset(
 # Vultr half carries no node-feature-discovery of its own.
 _VULTR = _HAND_WRITTEN - frozenset({"node-feature-discovery"})
 
+# Civo pre-installs no GPU stack at all, so its hand-written half is the
+# one that carries the GPU Operator (driver included), plus the Usages
+# for its depends_on edges and the DRA driver's edge onto it.
+_CIVO = _HAND_WRITTEN | frozenset(
+    {
+        "gpu-operator",
+        "usage-cert-manager-by-gpu-operator",
+        "usage-node-feature-discovery-by-gpu-operator",
+        "usage-gpu-operator-by-nvidia-dra-driver-gpu",
+    }
+)
+
 _INVENTORY = {
     "EKS": _EKS,
     "AKS": _AKS,
     "GKE": _GKE,
     "Nebius": _HAND_WRITTEN,
     "Vultr": _VULTR,
+    "Civo": _CIVO,
     "Existing": _HAND_WRITTEN,
 }
 

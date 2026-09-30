@@ -61,6 +61,7 @@ spec:
                 - AKS
                 - Nebius
                 - Vultr
+                - Civo
                 - Existing
               secrets:
                 type: array

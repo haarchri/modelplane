@@ -1,0 +1,19 @@
+apiVersion: infrastructure.modelplane.ai/v1alpha1
+kind: CivoCluster
+metadata:
+  name: inference-nyc1
+  namespace: platform
+spec:
+  region: NYC1
+  nodePools:
+    - name: workers
+      role: System
+      size: g4p.kube.small
+      nodeCount: 2
+    - name: gpu-l40s
+      role: GPU
+      size: an.g1.l40s.kube.x1
+      nodeCount: 1
+      maxNodeCount: 8
+      gpu:
+        acceleratorType: nvidia-l40s

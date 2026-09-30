@@ -1,0 +1,61 @@
+# An InferenceCluster backed by a Civo Kubernetes (k3s) cluster.
+#
+# Modelplane provisions the full cluster (network, firewall, control plane,
+# system + GPU node pools) and installs the inference stack (cert-manager,
+# Envoy Gateway, Prometheus, NVIDIA GPU Operator, LeaderWorkerSet, Gateway
+# API). Civo's default Traefik ingress is removed at creation - Envoy
+# Gateway is the stack's ingress - while the built-in metrics-server stays.
+#
+# The system node pool that hosts control-plane components is provisioned
+# automatically and is not declared here. Only GPU node pools - each
+# referencing an InferenceClass that describes the hardware shape and how
+# to provision it - need to be declared.
+#
+# Unlike most clouds, Civo GPU node images ship no NVIDIA driver (only the
+# container toolkit), so the inference stack's GPU Operator installs the
+# driver itself; the first GPU node takes a few extra minutes to become
+# schedulable while the driver compiles and loads.
+#
+# The Civo kubeconfig embeds static client certificates, so Modelplane
+# needs nothing beyond it to authenticate to the cluster. The Civo API
+# key on the ClusterProviderConfig named default provisions the cluster;
+# pools with maxNodeCount set are scaled by the Kubernetes cluster
+# autoscaler, which Modelplane installs on the cluster (Civo has no
+# server-side autoscaler) with a token copied from the civo-credentials
+# Secret's api-key key.
+#
+# ModelCache RWX storage: none. Civo's civo-volume StorageClass is
+# ReadWriteOnce only, and Modelplane provisions no alternative. Deploy
+# single-node engines without a ModelCache and let them pull weights
+# directly from the model source.
+#
+# Delete this InferenceCluster with foreground cascading deletion for a
+# clean teardown:
+#
+#   kubectl delete inferencecluster civo-nyc1 --cascade=foreground
+#
+# The inference stack runs on the Civo cluster and must uninstall while
+# the cluster's API server and kubeconfig still exist - otherwise its
+# Helm releases hang, and a load balancer one of them created can leak
+# and block the network from deleting. Foreground deletion holds the
+# cluster until the stack is uninstalled. Background deletion (the
+# kubectl default) tears everything down at once and can orphan cloud
+# resources.
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceCluster
+metadata:
+  name: civo-nyc1
+  labels:
+    modelplane.ai/region: nyc1
+spec:
+  cluster:
+    source: Civo
+    civo:
+      region: NYC1
+
+  nodePools:
+    - name: gpu-l40s
+      className: civo-l40s-1x
+      nodeCount: 1
+      minNodeCount: 1
+      maxNodeCount: 4

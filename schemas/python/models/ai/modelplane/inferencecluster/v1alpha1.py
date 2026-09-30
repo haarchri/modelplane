@@ -32,6 +32,21 @@ class Aks(BaseModel):
     """
 
 
+class Civo(BaseModel):
+    credentials: Credentials | None = None
+    """
+    Civo ProviderConfig or ClusterProviderConfig used to authenticate to the Civo API. Defaults to the ClusterProviderConfig named default.
+    """
+    kubernetesVersion: constr(min_length=1, max_length=32) | None = None
+    """
+    Civo Kubernetes (k3s) version. Civo requires an exact version string including the k3s build suffix; list current versions with civo kubernetes versions. Choose 1.34 or newer so Dynamic Resource Allocation (how GPUs bind to pods) is generally available. Defaults to Civo's current default version.
+    """
+    region: constr(min_length=1, max_length=32)
+    """
+    Civo region for the cluster (e.g. LON1, NYC1, FRA1). GPU sizes vary by region.
+    """
+
+
 class Eks(BaseModel):
     credentials: Credentials | None = None
     """
@@ -130,6 +145,10 @@ class Cluster(BaseModel):
     """
     AKS cluster configuration. Required when source is AKS.
     """
+    civo: Civo | None = None
+    """
+    Civo Kubernetes (k3s) cluster configuration. Required when source is Civo.
+    """
     eks: Eks | None = None
     """
     EKS cluster configuration. Required when source is EKS.
@@ -146,7 +165,7 @@ class Cluster(BaseModel):
     """
     Nebius mk8s cluster configuration. Required when source is Nebius; may be empty, since every field has a default. The cluster is created in the project the referenced ProviderConfig or ClusterProviderConfig sets as its projectID; Nebius projects are bound to a region, so the project also determines where the cluster runs.
     """
-    source: Literal['GKE', 'EKS', 'AKS', 'Nebius', 'Vultr', 'Existing']
+    source: Literal['GKE', 'EKS', 'AKS', 'Nebius', 'Vultr', 'Civo', 'Existing']
     """
     Cluster provisioning method.
     """

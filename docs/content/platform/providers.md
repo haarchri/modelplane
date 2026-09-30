@@ -12,7 +12,7 @@ A provider can show up here in three ways:
 
 {{< hint "note" >}}
 - **Provisioning supported.** Modelplane creates and manages the whole cluster
-  from an `InferenceCluster`, selected through `provisioning.provider`. GKE, EKS, AKS, Nebius mk8s, Vultr VKE work this way today.
+  from an `InferenceCluster`, selected through `provisioning.provider`. GKE, EKS, AKS, Nebius mk8s, Vultr VKE, Civo K3s work this way today.
 - **Bring your own supported.** Register a cluster you already run with
   `source: Existing`. This works on any provider whose Kubernetes meets
   Modelplane's requirements (Dynamic Resource Allocation and a recent Kubernetes
@@ -35,7 +35,7 @@ native provisioning.
 |---|---|---|---|---|
 | Alibaba Cloud (ACK) | {{< accel nvidia >}} | Planned | ✓ | {{< repolink "https://github.com/crossplane-contrib/provider-upjet-alibabacloud" "provider-upjet-alibabacloud" "community" >}} |
 | AWS (EKS) | {{< accel nvidia >}} {{< accel trainium >}} | ✓ | ✓ | {{< repolink "https://github.com/crossplane-contrib/provider-upjet-aws" "provider-upjet-aws" "community" >}} |
-| Civo (K3s) | {{< accel nvidia >}} | Planned | ✓ | {{< repolink "https://github.com/crossplane-contrib/provider-civo" "provider-civo" "community" >}} |
+| Civo (K3s) | {{< accel nvidia >}} | ✓ | ✓ | {{< repolink "https://github.com/upbound/provider-upjet-civo" "provider-civo" "community" >}} |
 | CoreWeave (CKS) | {{< accel nvidia >}} | Planned | ✓ | none yet |
 | Crusoe (CMK) | {{< accel nvidia >}} {{< accel amd >}} | Planned | ✓ | none yet |
 | DigitalOcean (DOKS) | {{< accel nvidia >}} {{< accel amd >}} | Planned | ✓ | {{< repolink "https://github.com/crossplane-contrib/provider-upjet-digitalocean" "provider-upjet-digitalocean" "community" >}} |
