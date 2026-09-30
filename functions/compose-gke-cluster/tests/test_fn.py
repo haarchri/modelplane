@@ -17,6 +17,7 @@
 import asyncio
 import dataclasses
 import json
+from typing import Literal
 
 import pytest
 from crossplane.function import resource
@@ -39,8 +40,13 @@ class Case:
     want: fnv1.RunFunctionResponse
 
 
-def _xr(*, credentials: v1alpha1.Credentials | None, node_pools: list[v1alpha1.NodePool]) -> fnv1.Resource:
-    """The observed GKECluster XR, with the given credentials and node pools."""
+def _xr(
+    *,
+    credentials: v1alpha1.Credentials | None,
+    endpoint_access: Literal["Public", "PublicAndPrivate", "Private"],
+    node_pools: list[v1alpha1.NodePool],
+) -> fnv1.Resource:
+    """The observed GKECluster XR, with the given credentials, endpoint access, and node pools."""
     xr = v1alpha1.GKECluster(
         metadata=metav1.ObjectMeta(
             name="test-cluster",
@@ -49,6 +55,7 @@ def _xr(*, credentials: v1alpha1.Credentials | None, node_pools: list[v1alpha1.N
         spec=v1alpha1.Spec(
             region="us-central1",
             credentials=credentials,
+            endpointAccess=endpoint_access,
             nodePools=node_pools,
         ),
     )
@@ -169,8 +176,30 @@ def _subnet(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
     )
 
 
-def _cluster(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
-    """The composed GKE Cluster."""
+def _cluster(*, cred_kind: str, cred_name: str, private_cluster_config: dict | None) -> fnv1.Resource:
+    """The composed GKE Cluster, with a privateClusterConfig when given one."""
+    for_provider = {
+        "location": "us-central1",
+        "deletionProtection": False,
+        "removeDefaultNodePool": True,
+        "initialNodeCount": 1,
+        "minMasterVersion": "1.35",
+        "networkSelector": {"matchControllerRef": True},
+        "subnetworkSelector": {"matchControllerRef": True},
+        "ipAllocationPolicy": {
+            "clusterSecondaryRangeName": "pods",
+            "servicesSecondaryRangeName": "services",
+        },
+        "releaseChannel": {"channel": "REGULAR"},
+        "workloadIdentityConfig": {
+            "workloadPool": "my-gcp-project.svc.id.goog",
+        },
+        "addonsConfig": {
+            "gcpFilestoreCsiDriverConfig": {"enabled": True},
+        },
+    }
+    if private_cluster_config is not None:
+        for_provider["privateClusterConfig"] = private_cluster_config
     return fnv1.Resource(
         resource=resource.dict_to_struct(
             {
@@ -178,26 +207,7 @@ def _cluster(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
                 "kind": "Cluster",
                 "spec": {
                     "providerConfigRef": {"kind": cred_kind, "name": cred_name},
-                    "forProvider": {
-                        "location": "us-central1",
-                        "deletionProtection": False,
-                        "removeDefaultNodePool": True,
-                        "initialNodeCount": 1,
-                        "minMasterVersion": "1.35",
-                        "networkSelector": {"matchControllerRef": True},
-                        "subnetworkSelector": {"matchControllerRef": True},
-                        "ipAllocationPolicy": {
-                            "clusterSecondaryRangeName": "pods",
-                            "servicesSecondaryRangeName": "services",
-                        },
-                        "releaseChannel": {"channel": "REGULAR"},
-                        "workloadIdentityConfig": {
-                            "workloadPool": "my-gcp-project.svc.id.goog",
-                        },
-                        "addonsConfig": {
-                            "gcpFilestoreCsiDriverConfig": {"enabled": True},
-                        },
-                    },
+                    "forProvider": for_provider,
                     "writeConnectionSecretToRef": {
                         "name": "test-cluster-kubeconfig-55b57",
                     },
@@ -365,6 +375,7 @@ COMPOSE_CASES = [
             observed=fnv1.State(
                 composite=_xr(
                     credentials=None,
+                    endpoint_access="Public",
                     node_pools=[
                         v1alpha1.NodePool(
                             name="gpu-pool",
@@ -396,7 +407,11 @@ COMPOSE_CASES = [
                         cred_name="default",
                     ),
                     "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
-                    "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        private_cluster_config=None,
+                    ),
                     "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "service-account": _service_account(
@@ -430,6 +445,7 @@ COMPOSE_CASES = [
             observed=fnv1.State(
                 composite=_xr(
                     credentials=None,
+                    endpoint_access="Public",
                     node_pools=[
                         v1alpha1.NodePool(
                             name="gpu-pool",
@@ -470,6 +486,7 @@ COMPOSE_CASES = [
             observed=fnv1.State(
                 composite=_xr(
                     credentials=None,
+                    endpoint_access="Public",
                     node_pools=[
                         v1alpha1.NodePool(
                             name="gpu-pool",
@@ -591,7 +608,11 @@ COMPOSE_CASES = [
                         ready=fnv1.READY_TRUE,
                     ),
                     "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
-                    "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        private_cluster_config=None,
+                    ),
                     "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "service-account": _service_account(
@@ -641,6 +662,7 @@ COMPOSE_CASES = [
             observed=fnv1.State(
                 composite=_xr(
                     credentials=v1alpha1.Credentials(type="ProviderConfig", name="my-gcp-account"),
+                    endpoint_access="Public",
                     node_pools=[
                         v1alpha1.NodePool(
                             name="gpu-pool",
@@ -694,7 +716,11 @@ COMPOSE_CASES = [
                         cred_name="my-gcp-account",
                     ),
                     "subnet": _subnet(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
-                    "cluster": _cluster(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
+                    "cluster": _cluster(
+                        cred_kind="ProviderConfig",
+                        cred_name="my-gcp-account",
+                        private_cluster_config=None,
+                    ),
                     "nodepool-system": _nodepool_system(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
                     "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
                     "service-account": _service_account(
@@ -735,6 +761,319 @@ COMPOSE_CASES = [
                         kind="ProviderConfig",
                         match_name="my-gcp-account",
                         namespace="modelplane-system",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="PublicAndPrivateEndpoint",
+        reason="With endpointAccess PublicAndPrivate, a GKECluster makes its nodes private, keeps the public endpoint, and composes the Cloud Router and NAT the private nodes' egress needs.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    endpoint_access="PublicAndPrivate",
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="gpu-pool",
+                            role="GPU",
+                            machineType="a2-highgpu-8g",
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-tesla-a100", acceleratorCount=8),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "router": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "compute.gcp.m.upbound.io/v1beta1",
+                                "kind": "Router",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "region": "us-central1",
+                                        "networkSelector": {"matchControllerRef": True},
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "router-nat": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "compute.gcp.m.upbound.io/v1beta1",
+                                "kind": "RouterNAT",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "region": "us-central1",
+                                        "routerSelector": {"matchControllerRef": True},
+                                        "natIpAllocateOption": "AUTO_ONLY",
+                                        "sourceSubnetworkIpRangesToNat": "ALL_SUBNETWORKS_ALL_IP_RANGES",
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        private_cluster_config={
+                            "enablePrivateNodes": True,
+                            "enablePrivateEndpoint": False,
+                            "masterIpv4CidrBlock": "10.3.0.0/28",
+                            "masterGlobalAccessConfig": {"enabled": True},
+                        },
+                    ),
+                    "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="PrivateEndpoint",
+        reason="With endpointAccess Private, a GKECluster disables the public endpoint too, so the API server is reachable only over private connectivity.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    endpoint_access="Private",
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="gpu-pool",
+                            role="GPU",
+                            machineType="a2-highgpu-8g",
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-tesla-a100", acceleratorCount=8),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "router": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "compute.gcp.m.upbound.io/v1beta1",
+                                "kind": "Router",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "region": "us-central1",
+                                        "networkSelector": {"matchControllerRef": True},
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "router-nat": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "compute.gcp.m.upbound.io/v1beta1",
+                                "kind": "RouterNAT",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "region": "us-central1",
+                                        "routerSelector": {"matchControllerRef": True},
+                                        "natIpAllocateOption": "AUTO_ONLY",
+                                        "sourceSubnetworkIpRangesToNat": "ALL_SUBNETWORKS_ALL_IP_RANGES",
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        private_cluster_config={
+                            "enablePrivateNodes": True,
+                            "enablePrivateEndpoint": True,
+                            "masterIpv4CidrBlock": "10.3.0.0/28",
+                            "masterGlobalAccessConfig": {"enabled": True},
+                        },
+                    ),
+                    "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="DeclaredSystemPool",
+        reason="A System pool the spec declares composes like any other pool and replaces the injected default system node pool.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    endpoint_access="Public",
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="sys",
+                            role="System",
+                            machineType="e2-standard-8",
+                            nodeCount=2,
+                            minNodeCount=1,
+                            maxNodeCount=3,
+                        ),
+                        v1alpha1.NodePool(
+                            name="gpu-pool",
+                            role="GPU",
+                            machineType="a2-highgpu-8g",
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-tesla-a100", acceleratorCount=8),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        private_cluster_config=None,
+                    ),
+                    # Unlike the injected default system pool, a declared one
+                    # carries the schema's diskSizeGb default.
+                    "nodepool-sys": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "container.gcp.m.upbound.io/v1beta1",
+                                "kind": "NodePool",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "location": "us-central1",
+                                        "clusterSelector": {"matchControllerRef": True},
+                                        "initialNodeCount": 2,
+                                        "autoscaling": {"minNodeCount": 1, "maxNodeCount": 3},
+                                        "nodeConfig": {
+                                            "machineType": "e2-standard-8",
+                                            "diskSizeGb": 100,
+                                            "imageType": "COS_CONTAINERD",
+                                            "oauthScopes": [
+                                                "https://www.googleapis.com/auth/cloud-platform",
+                                            ],
+                                            "labels": {"modelplane.ai/pool": "sys"},
+                                        },
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
                     ),
                 },
             ),
