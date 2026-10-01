@@ -212,6 +212,7 @@ def _node_pool(
     taint: list | None = None,
     cred_kind: str = "ClusterProviderConfig",
     cred_name: str = "default",
+    *,
     autoscaled: bool = False,
 ) -> dict:
     """A NodePool golden. Autoscaled pools seed nodeCount via initProvider

@@ -123,6 +123,11 @@ _SECRET_TYPE_KUBECONFIG = "Kubeconfig"
 # ClusterProviderConfig secretRefs, and status.namespace.
 _NAMESPACE_SYSTEM = "modelplane-system"
 
+# Accelerator type naming an NVIDIA H100 in an InferenceClass. On Civo,
+# a pool of single-H100 nodes needs the serving stack to load that
+# pool's GPU driver with NVLink disabled (see civo_nvlink_disabled_pools).
+_ACCELERATOR_H100 = "nvidia-h100"
+
 # Identity type for GCP service account credentials.
 _IDENTITY_TYPE_GCP = "GoogleApplicationCredentials"
 
@@ -802,7 +807,13 @@ class Composer:
         backend_secrets = self.resolve_civo_backend_secrets(civo_ready=civo_ready, backend_exists=backend_exists)
         if backend_secrets or backend_exists:
             if backend_secrets:
-                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_CIVO)
+                nvlink_disabled = self.civo_nvlink_disabled_pools()
+                gpu = None
+                if nvlink_disabled:
+                    gpu = ssv1alpha1.Gpu(
+                        pools=[ssv1alpha1.Pool(name=name, disableNvLink=True) for name in nvlink_disabled],
+                    )
+                self.compose_serving_stack(backend_secrets, CLUSTER_SOURCE_CIVO, gpu=gpu)
             self.compose_civo_usage()
 
         if civo_ready:
@@ -846,13 +857,17 @@ class Composer:
         self,
         backend_secrets: list[ssv1alpha1.Secret],
         cloud: Cloud,
+        *,
+        gpu: ssv1alpha1.Gpu | None = None,
     ) -> None:
         """Compose a ServingStack XR with the given secrets.
 
         cloud names the cluster's source (this XR's spec.cluster.source)
         and selects the component list the serving stack installs,
         including cloud specifics like where the node image puts the
-        NVIDIA driver.
+        NVIDIA driver. gpu carries per-pool driver configuration the
+        component list can't know at build time (see
+        civo_nvlink_disabled_pools).
         """
         # The gateway's name and the CAs it should accept client certificates
         # from. The name is Modelplane's own, derived from this cluster's name;
@@ -870,6 +885,8 @@ class Composer:
             cloud=cloud,
             gateway=gateway,
         )
+        if gpu is not None:
+            spec.gpu = gpu
         resource.update(
             self.rsp.desired.resources[BACKEND_RESOURCE_KEY],
             ssv1alpha1.ServingStack(
@@ -1494,6 +1511,26 @@ class Composer:
         if not vultr_secrets:
             return None
         return next((s for s in vultr_secrets if s.type == secret_type), None)
+
+    def civo_nvlink_disabled_pools(self) -> list[str]:
+        """Pools whose GPU driver the serving stack must load with NVLink
+        disabled. Civo's single-H100 sizes are lone H100 SXM modules whose
+        NVLink links have no peer, so link bring-up fails and the driver
+        never becomes ready unless loaded with NVreg_NvLinkDisable=1 (per
+        Civo's GPU configuration docs). The serving stack scopes the
+        setting to each listed pool through a dedicated NVIDIADriver, so
+        multi-GPU pools in the same cluster keep NVLink between their
+        GPUs. Pools whose class lacks a Civo provisioning block are
+        skipped here and reported by compose_civo_cluster."""
+        pools: list[str] = []
+        for pool in self.xr.spec.nodePools or []:
+            cls = self.classes.get(pool.className)
+            if not cls or not cls.spec.provisioning or not cls.spec.provisioning.civo:
+                continue
+            accelerator = cls.spec.provisioning.civo.accelerator
+            if accelerator.type == _ACCELERATOR_H100 and accelerator.count == 1:
+                pools.append(pool.name)
+        return pools
 
     def compose_civo_cluster(self, civo: v1alpha1.Civo) -> None:
         """Compose a CivoCluster XR.

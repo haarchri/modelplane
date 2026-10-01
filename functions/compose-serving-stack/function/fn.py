@@ -307,6 +307,16 @@ class Composer:
         # as a fatal result.
         components = stacks.join(self.xr.spec.cloud, self.xr.spec.stack or "Standard")
 
+        # Per-pool GPU driver configuration is per-cluster state the cluster
+        # composition projects into spec.gpu, so it can't live in the
+        # build-time component lists; the transform is still the stacks
+        # package's (civo.py), keeping the what out of this function. Only
+        # Civo projects it today (single-H100 NVLink disable).
+        if self.xr.spec.cloud == "Civo" and self.xr.spec.gpu and self.xr.spec.gpu.pools:
+            nvlink_pools = [p.name for p in self.xr.spec.gpu.pools if p.disableNvLink]
+            if nvlink_pools:
+                components = stacks.civo.with_nvlink_disabled(components, nvlink_pools)
+
         rendered = self.compose_components(components)
         rendered += self.compose_gateway()
         rendered += self.compose_gateway_pki()

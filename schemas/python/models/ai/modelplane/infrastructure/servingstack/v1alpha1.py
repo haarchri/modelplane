@@ -68,6 +68,24 @@ class Gateway(BaseModel):
     """
 
 
+class Pool(BaseModel):
+    disableNvLink: bool | None = False
+    """
+    Load this pool's NVIDIA driver with NVLink disabled (NVreg_NvLinkDisable=1). Set for pools of single-H100 nodes on Civo: a lone H100 SXM has NVLink links but no peer, so link bring-up fails and the driver never becomes ready.
+    """
+    name: constr(min_length=1, max_length=40)
+    """
+    Name of the node pool.
+    """
+
+
+class Gpu(BaseModel):
+    pools: list[Pool] | None = Field(None, max_length=8)
+    """
+    GPU node pools that need a driver configuration of their own, keyed by the pool name the cluster composition labels the pool's nodes with (modelplane.ai/pool). Pools absent from this list run the stack's default driver configuration.
+    """
+
+
 class Secret(BaseModel):
     key: constr(max_length=253)
     """
@@ -104,6 +122,10 @@ class Spec(BaseModel):
     gateway: Gateway
     """
     Configuration for the cluster's inference traffic gateway.
+    """
+    gpu: Gpu | None = None
+    """
+    GPU driver configuration for the stack's GPU Operator install, projected from the InferenceCluster's node pools by the cluster composition.
     """
     secrets: list[Secret] = Field(..., max_length=8, min_length=1)
     """

@@ -23,6 +23,7 @@ generated ones, once mapped - without involving fn.py.
 import unittest
 
 from function import stacks
+from function.stacks.clouds import civo
 
 
 class TestComponents(unittest.TestCase):
@@ -131,3 +132,73 @@ class TestComponents(unittest.TestCase):
             stacks.join("Mars", "Standard")  # ty: ignore[invalid-argument-type]
         with self.assertRaises(ValueError):
             stacks.join("Nebius", "Turbo")  # ty: ignore[invalid-argument-type]
+
+
+class TestWithNvLinkDisabled(unittest.TestCase):
+    """with_nvlink_disabled scopes NVLink disable to the named pools."""
+
+    def test_gpu_operator_switches_to_nvidia_driver_crd(self) -> None:
+        # The chart's default NVIDIADriver (deployDefaultCR) keeps driving
+        # pools the transform doesn't name, so flipping modes changes
+        # nothing for them.
+        got = civo.with_nvlink_disabled(stacks.join("Civo", "Standard"), ["h100-pool"])
+        op = next(c for c in got if isinstance(c, stacks.Chart) and c.key == "gpu-operator")
+        assert op.values is not None
+        self.assertEqual({"enabled": True, "deployDefaultCR": True}, op.values["driver"]["nvidiaDriverCRD"])
+
+    def test_each_pool_gets_its_own_driver(self) -> None:
+        got = civo.with_nvlink_disabled(stacks.join("Civo", "Standard"), ["pool-a", "pool-b"])
+        drivers = [c for c in got if isinstance(c, stacks.Manifests) and c.key.startswith("nvlink-disabled-driver-")]
+        self.assertEqual(["nvlink-disabled-driver-pool-a", "nvlink-disabled-driver-pool-b"], [c.key for c in drivers])
+        for c, pool in zip(drivers, ["pool-a", "pool-b"], strict=True):
+            with self.subTest(pool=pool):
+                # Ready entries keep to a single doc, and gate on the
+                # operator-populated state so the DRA driver's install
+                # gate orders on driver health.
+                self.assertEqual(1, len(c.manifests))
+                self.assertIsNotNone(c.ready)
+                self.assertEqual(["gpu-operator", "nvlink-disable-config"], c.depends_on)
+                spec = c.manifests[0]["spec"]
+                self.assertEqual({"modelplane.ai/pool": pool}, spec["nodeSelector"])
+                self.assertEqual({"name": "nvidia-kernel-config"}, spec["kernelModuleConfig"])
+
+    def test_driver_pin_mirrors_the_chart(self) -> None:
+        # One review moves both: the per-pool NVIDIADriver must install
+        # the same driver the chart's default CR does.
+        got = civo.with_nvlink_disabled(stacks.join("Civo", "Standard"), ["h100-pool"])
+        op = next(c for c in got if isinstance(c, stacks.Chart) and c.key == "gpu-operator")
+        driver = next(c for c in got if isinstance(c, stacks.Manifests) and c.key == "nvlink-disabled-driver-h100-pool")
+        assert op.values is not None
+        spec = driver.manifests[0]["spec"]
+        self.assertEqual(op.values["driver"]["version"], spec["version"])
+        self.assertEqual(op.values["driver"]["useOpenKernelModules"], spec["useOpenKernelModules"])
+
+    def test_configmap_carries_the_module_option(self) -> None:
+        got = civo.with_nvlink_disabled(stacks.join("Civo", "Standard"), ["h100-pool"])
+        config = next(c for c in got if isinstance(c, stacks.Manifests) and c.key == "nvlink-disable-config")
+        kinds = [doc["kind"] for doc in config.manifests]
+        self.assertEqual(["Namespace", "ConfigMap"], kinds)
+        self.assertEqual(
+            {"nvidia.conf": "options nvidia NVreg_NvLinkDisable=1"},
+            config.manifests[1]["data"],
+        )
+
+    def test_dra_driver_gates_on_pool_drivers(self) -> None:
+        got = civo.with_nvlink_disabled(stacks.join("Civo", "Standard"), ["pool-a", "pool-b"])
+        dra = next(c for c in got if isinstance(c, stacks.Chart) and c.key == "nvidia-dra-driver-gpu")
+        self.assertEqual(
+            ["gpu-operator", "nvlink-disabled-driver-pool-a", "nvlink-disabled-driver-pool-b"],
+            dra.depends_on,
+        )
+
+    def test_join_is_not_mutated(self) -> None:
+        # The transform must copy: the joined lists share the module-level
+        # component objects, and mutating them would leak NVLink disable
+        # into every later request.
+        civo.with_nvlink_disabled(stacks.join("Civo", "Standard"), ["h100-pool"])
+        joined = stacks.join("Civo", "Standard")
+        op = next(c for c in joined if isinstance(c, stacks.Chart) and c.key == "gpu-operator")
+        dra = next(c for c in joined if isinstance(c, stacks.Chart) and c.key == "nvidia-dra-driver-gpu")
+        assert op.values is not None
+        self.assertNotIn("nvidiaDriverCRD", op.values["driver"])
+        self.assertEqual(["gpu-operator"], dra.depends_on)

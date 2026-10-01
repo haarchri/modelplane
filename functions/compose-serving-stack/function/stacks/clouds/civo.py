@@ -34,7 +34,121 @@ the DRA driver's depends_on are what keep GPU health on the critical
 path.
 """
 
-from function.stacks.components import Chart, Component
+import copy
+from dataclasses import replace
+
+from function.stacks.components import Chart, Component, Manifests
+
+# The pool label compose-civo-cluster writes on every node pool's nodes.
+# with_nvlink_disabled selects a pool's nodes by it, so a per-pool
+# NVIDIADriver claims exactly that pool away from the default driver.
+_LABEL_POOL = "modelplane.ai/pool"
+
+# ConfigMap the per-pool NVIDIADrivers read kernel module options from.
+_KERNEL_MODULE_CONFIGMAP = "nvidia-kernel-config"
+
+# Component keys with_nvlink_disabled adds to the joined list. Driver
+# entries are per pool, suffixed with the pool name.
+_NVLINK_CONFIG_KEY = "nvlink-disable-config"
+_NVLINK_DRIVER_KEY_PREFIX = "nvlink-disabled-driver"
+
+
+def with_nvlink_disabled(components: list[Component], pools: list[str]) -> list[Component]:
+    """The component list with the given pools' GPU driver loading NVLink
+    disabled, leaving every other pool's driver untouched.
+
+    Civo's single-H100 sizes are lone H100 SXM modules whose NVLink links
+    have no peer: link bring-up fails and the driver never becomes ready
+    unless loaded with NVreg_NvLinkDisable=1 (per Civo's GPU configuration
+    docs, validated against GPU Operator v25.10.1). The parameter must not
+    reach multi-GPU pools, whose GPUs NVLink interconnects, so the
+    gpu-operator chart switches to NVIDIADriver-managed drivers: the
+    chart's default NVIDIADriver (deployDefaultCR) keeps driving every GPU
+    node not claimed by a more specific instance, and one NVIDIADriver per
+    listed pool claims that pool's nodes - same driver pin as the chart's,
+    plus the kernel module ConfigMap carrying the parameter.
+
+    The per-pool NVIDIADrivers gate on the gpu-operator release (their CRD
+    ships with it) and the DRA driver gates on them, so GPU health stays
+    on the critical path: a pool whose driver never loads holds its
+    NVIDIADriver's status.state off ready, which holds back the DRA
+    driver exactly like an unhealthy operator does today.
+    """
+    driver_keys = [f"{_NVLINK_DRIVER_KEY_PREFIX}-{pool}" for pool in pools]
+
+    def transformed(c: Component) -> Component:
+        if isinstance(c, Chart) and c.key == "gpu-operator":
+            values = copy.deepcopy(c.values or {})
+            # deployDefaultCR renders the chart's driver block below as the
+            # default (fallback) NVIDIADriver, so unlisted pools keep the
+            # exact configuration they get in ClusterPolicy mode.
+            values["driver"]["nvidiaDriverCRD"] = {"enabled": True, "deployDefaultCR": True}
+            return replace(c, values=values)
+        if isinstance(c, Chart) and c.key == "nvidia-dra-driver-gpu":
+            return replace(c, depends_on=[*c.depends_on, *driver_keys])
+        return c
+
+    out: list[Component] = [transformed(c) for c in components]
+    out.append(
+        Manifests(
+            key=_NVLINK_CONFIG_KEY,
+            # The namespace is created here rather than by the gpu-operator
+            # release: the ConfigMap carries no dependency edge, so it can
+            # apply before the chart.
+            manifests=[
+                {
+                    "apiVersion": "v1",
+                    "kind": "Namespace",
+                    "metadata": {"name": "gpu-operator"},
+                },
+                {
+                    "apiVersion": "v1",
+                    "kind": "ConfigMap",
+                    "metadata": {
+                        "name": _KERNEL_MODULE_CONFIGMAP,
+                        "namespace": "gpu-operator",
+                    },
+                    "data": {"nvidia.conf": "options nvidia NVreg_NvLinkDisable=1"},
+                },
+            ],
+        ),
+    )
+    for pool, key in zip(pools, driver_keys, strict=True):
+        out.append(
+            Manifests(
+                key=key,
+                depends_on=["gpu-operator", _NVLINK_CONFIG_KEY],
+                # Ready only once the operator reports the pool's driver
+                # rolled out, so the DRA driver's install gate orders on
+                # driver health, not CR admission.
+                ready='object.status.state == "ready"',
+                manifests=[
+                    {
+                        "apiVersion": "nvidia.com/v1alpha1",
+                        "kind": "NVIDIADriver",
+                        "metadata": {"name": f"nvlink-disabled-{pool}"},
+                        "spec": {
+                            "driverType": "gpu",
+                            # Driver pin and module flavor mirror the chart's
+                            # driver block below; one review moves both.
+                            "version": "580.173.02",
+                            "useOpenKernelModules": True,
+                            "nodeSelector": {_LABEL_POOL: pool},
+                            "kernelModuleConfig": {"name": _KERNEL_MODULE_CONFIGMAP},
+                            "tolerations": [
+                                {
+                                    "key": "nvidia.com/gpu",
+                                    "operator": "Exists",
+                                    "effect": "NoSchedule",
+                                },
+                            ],
+                        },
+                    },
+                ],
+            ),
+        )
+    return out
+
 
 COMPONENTS: list[Component] = [
     Chart(
@@ -171,8 +285,10 @@ COMPONENTS: list[Component] = [
             # Civo GPU node images ship no driver; the operator's
             # containerized driver installs to /run/nvidia/driver, where
             # the DRA driver's nvidiaDriverRoot points. Driver pin mirrors
-            # the generated clouds'. The L40S and A100 both support the
-            # open kernel modules.
+            # the generated clouds'. The L40S, A100 and H100 all support
+            # the open kernel modules. Single-H100 pools additionally need
+            # NVLink disabled at driver load; with_nvlink_disabled above
+            # scopes that to the pool when the ServingStack asks for it.
             "driver": {
                 "enabled": True,
                 "maxParallelUpgrades": 5,

@@ -3165,6 +3165,168 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+        # --- Case 17b: a Civo pool of single-H100 nodes (accelerator
+        # nvidia-h100, count 1) projects per-pool NVLink disable into the
+        # backend's spec.gpu: a lone H100 SXM has NVLink links but no peer,
+        # so the serving stack must load that pool's driver with
+        # NVreg_NvLinkDisable=1. The L40S case above projects no spec.gpu. ---
+        inference_class_h100_civo = {
+            "apiVersion": "modelplane.ai/v1alpha1",
+            "kind": "InferenceClass",
+            "metadata": {"name": "gpu-h100-civo"},
+            "spec": {
+                "devices": [
+                    {
+                        "name": "gpu",
+                        "claim": "DRA",
+                        "driver": "gpu.nvidia.com",
+                        "deviceClassName": "gpu.nvidia.com",
+                        "count": 1,
+                        "capacity": {"memory": {"value": "81559Mi"}},
+                    },
+                ],
+                "provisioning": {
+                    "provider": "Civo",
+                    "civo": {
+                        "size": "an.g1.h100.kube.x1",
+                        "accelerator": {"type": "nvidia-h100", "count": 1},
+                    },
+                },
+            },
+        }
+
+        req17b = fnv1.RunFunctionRequest()
+        req17b.CopyFrom(req17)
+        req17b.observed.composite.CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    v1alpha1.InferenceCluster(
+                        metadata=metav1.ObjectMeta(
+                            name="test-cluster",
+                            namespace="modelplane-system",
+                        ),
+                        spec=v1alpha1.Spec(
+                            cluster=v1alpha1.Cluster(
+                                source="Civo",
+                                civo=v1alpha1.Civo(region="LON1"),
+                            ),
+                            nodePools=[
+                                v1alpha1.NodePool(
+                                    name="h100-pool",
+                                    className="gpu-h100-civo",
+                                    nodeCount=1,
+                                ),
+                            ],
+                        ),
+                    ).model_dump(exclude_none=True, mode="json"),
+                ),
+            ),
+        )
+        req17b.required_resources["class-gpu-h100-civo"].items.append(
+            fnv1.Resource(resource=resource.dict_to_struct(inference_class_h100_civo)),
+        )
+
+        want17b = fnv1.RunFunctionResponse()
+        want17b.CopyFrom(want17)
+        del want17b.requirements.resources["class-gpu-l40s-civo"]
+        want17b.requirements.resources["class-gpu-h100-civo"].CopyFrom(
+            fnv1.ResourceSelector(
+                api_version="modelplane.ai/v1alpha1",
+                kind="InferenceClass",
+                match_name="gpu-h100-civo",
+            ),
+        )
+        want17b.desired.composite.CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "status": {
+                            "providerConfigRef": {
+                                "name": "test-cluster-cluster-kubeconfig-d0f89",
+                            },
+                            "namespace": "modelplane-system",
+                            "gpuPools": [
+                                {
+                                    "name": "h100-pool",
+                                    "nodes": 1,
+                                    "devices": [
+                                        {
+                                            "name": "gpu",
+                                            "claim": "DRA",
+                                            "driver": "gpu.nvidia.com",
+                                            "deviceClassName": "gpu.nvidia.com",
+                                            "count": 1,
+                                            "capacity": {"memory": {"value": "81559Mi"}},
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ),
+            ),
+        )
+        want17b.desired.resources["civo-cluster"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                        "kind": "CivoCluster",
+                        "metadata": {
+                            "name": "test-cluster",
+                            "namespace": "modelplane-system",
+                        },
+                        "spec": {
+                            "region": "LON1",
+                            "nodePools": [
+                                {
+                                    "name": "h100-pool",
+                                    "role": "GPU",
+                                    "size": "an.g1.h100.kube.x1",
+                                    "nodeCount": 1,
+                                    "gpu": {
+                                        "acceleratorType": "nvidia-h100",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ),
+                ready=fnv1.READY_TRUE,
+            ),
+        )
+        want17b.desired.resources["serving-stack"].CopyFrom(
+            fnv1.Resource(
+                resource=resource.dict_to_struct(
+                    {
+                        "apiVersion": "infrastructure.modelplane.ai/v1alpha1",
+                        "kind": "ServingStack",
+                        "metadata": {
+                            "name": "test-cluster-serving-stack-fd00b",
+                            "namespace": "modelplane-system",
+                        },
+                        "spec": {
+                            "cloud": "Civo",
+                            "gateway": {"hostname": _GATEWAY_HOSTNAME},
+                            "gpu": {
+                                "pools": [
+                                    {"name": "h100-pool", "disableNvLink": True},
+                                ],
+                            },
+                            "stack": "Standard",
+                            "secrets": [
+                                {
+                                    "type": "Kubeconfig",
+                                    "name": "test-cluster-kubeconfig-abcde",
+                                    "key": "kubeconfig",
+                                },
+                            ],
+                        },
+                    }
+                ),
+            ),
+        )
+
         # Every compose path emits the ModelReplica guard requirement.
         for want in (
             want1,
@@ -3186,6 +3348,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             want16,
             want_creds_civo,
             want17,
+            want17b,
         ):
             want.requirements.resources["gateways"].CopyFrom(_gateways_selector())
             want.requirements.resources["model-replicas"].CopyFrom(_replicas_selector("test-cluster"))
@@ -3356,6 +3519,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
             (req16, want16, fn._ACTIVATE_CIVO),
             (req_creds_civo, want_creds_civo, fn._ACTIVATE_CIVO),
             (req17, want17, fn._ACTIVATE_CIVO),
+            (req17b, want17b, fn._ACTIVATE_CIVO),
         ]:
             _observe_activated(req, kinds)
             _want_activation(want, kinds)
@@ -3436,6 +3600,11 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 name="Civo cluster ready composes CPC without identity, ServingStack, and Usage",
                 req=req17,
                 want=want17,
+            ),
+            Case(
+                name="Civo single-H100 pool projects per-pool NVLink disable to the backend",
+                req=req17b,
+                want=want17b,
             ),
             *guard_cases,
         ]

@@ -964,6 +964,107 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
         helm_pc = resource.struct_to_dict(got.desired.resources["provider-config-helm"].resource)
         self.assertEqual("NebiusServiceAccountCredentials", helm_pc["spec"]["identity"]["type"])
 
+    async def test_gpu_pool_nvlink_disable_flows_to_components(self) -> None:
+        """A Civo ServingStack whose spec.gpu flags a pool for NVLink
+        disable composes the gpu-operator release in NVIDIADriver-CRD
+        mode, the kernel module ConfigMap, and a per-pool NVIDIADriver
+        selecting that pool's nodes - and only that pool's."""
+        # The install gate composes a component once its dependencies are
+        # observed Ready; observe the chain up to the per-pool driver.
+        observed = _observed_pcs()
+        for key in (
+            "cert-manager",
+            "node-feature-discovery",
+            "gpu-operator",
+            "nvlink-disable-config-gpu-operator",
+            "nvlink-disable-config-nvidia-kernel-config",
+        ):
+            observed[key] = fnv1.Resource(
+                resource=resource.dict_to_struct({"status": {"conditions": [{"type": "Ready", "status": "True"}]}})
+            )
+        req = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        v1alpha1.ServingStack(
+                            metadata=metav1.ObjectMeta(name="test-backend", namespace="test-ns"),
+                            spec=v1alpha1.Spec(
+                                cloud="Civo",
+                                secrets=[
+                                    v1alpha1.Secret(type="Kubeconfig", name="kube-secret", key="kubeconfig"),
+                                ],
+                                gateway=v1alpha1.Gateway(hostname=_GATEWAY_HOSTNAME),
+                                gpu=v1alpha1.Gpu(
+                                    pools=[v1alpha1.Pool(name="h100-pool", disableNvLink=True)],
+                                ),
+                            ),
+                        ).model_dump(exclude_none=True, mode="json")
+                    ),
+                ),
+                resources=observed,
+            ),
+        )
+        got = await self.runner.RunFunction(req, None)
+
+        release = resource.struct_to_dict(got.desired.resources["gpu-operator"].resource)
+        self.assertEqual(
+            {"enabled": True, "deployDefaultCR": True},
+            release["spec"]["forProvider"]["values"]["driver"]["nvidiaDriverCRD"],
+        )
+
+        config = resource.struct_to_dict(got.desired.resources["nvlink-disable-config-nvidia-kernel-config"].resource)
+        self.assertEqual(
+            {"nvidia.conf": "options nvidia NVreg_NvLinkDisable=1"},
+            config["spec"]["forProvider"]["manifest"]["data"],
+        )
+
+        driver = resource.struct_to_dict(got.desired.resources["nvlink-disabled-driver-h100-pool"].resource)
+        manifest = driver["spec"]["forProvider"]["manifest"]
+        self.assertEqual("NVIDIADriver", manifest["kind"])
+        self.assertEqual({"modelplane.ai/pool": "h100-pool"}, manifest["spec"]["nodeSelector"])
+        self.assertEqual({"name": "nvidia-kernel-config"}, manifest["spec"]["kernelModuleConfig"])
+
+        # The derived Usages hold the operator release and the ConfigMap
+        # until the per-pool driver is gone.
+        self.assertIn("usage-gpu-operator-by-nvlink-disabled-driver-h100-pool", got.desired.resources)
+
+    async def test_gpu_pool_without_nvlink_disable_changes_nothing(self) -> None:
+        """A Civo ServingStack whose spec.gpu flags no pool composes the
+        stock component list: ClusterPolicy-managed driver, no NVIDIADriver
+        or kernel module ConfigMap objects."""
+        observed = _observed_pcs()
+        observed["gpu-operator"] = fnv1.Resource(
+            resource=resource.dict_to_struct({"status": {"conditions": [{"type": "Ready", "status": "True"}]}})
+        )
+        req = fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=fnv1.Resource(
+                    resource=resource.dict_to_struct(
+                        v1alpha1.ServingStack(
+                            metadata=metav1.ObjectMeta(name="test-backend", namespace="test-ns"),
+                            spec=v1alpha1.Spec(
+                                cloud="Civo",
+                                secrets=[
+                                    v1alpha1.Secret(type="Kubeconfig", name="kube-secret", key="kubeconfig"),
+                                ],
+                                gateway=v1alpha1.Gateway(hostname=_GATEWAY_HOSTNAME),
+                                gpu=v1alpha1.Gpu(
+                                    pools=[v1alpha1.Pool(name="l40s-pool", disableNvLink=False)],
+                                ),
+                            ),
+                        ).model_dump(exclude_none=True, mode="json")
+                    ),
+                ),
+                resources=observed,
+            ),
+        )
+        got = await self.runner.RunFunction(req, None)
+
+        release = resource.struct_to_dict(got.desired.resources["gpu-operator"].resource)
+        self.assertNotIn("nvidiaDriverCRD", release["spec"]["forProvider"]["values"]["driver"])
+        for key in got.desired.resources:
+            self.assertNotIn("nvlink", key)
+
     async def test_cluster_gateway_composes_mtls_with_ca(self) -> None:
         """A cluster with an InferenceGateway CA serves mTLS: it issues its own
         PKI, republishes the CA without its key, demands a client certificate on
