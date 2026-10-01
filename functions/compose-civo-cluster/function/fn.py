@@ -29,12 +29,9 @@ stays.
 Civo has no server-side node pool autoscaler, so pools with maxNodeCount
 set are scaled by the Kubernetes cluster autoscaler installed on the
 workload cluster as a Helm release. Its Civo cloud provider addresses node
-groups by pool ID and authenticates to the Civo API with a token read from
-the civo-api-access Secret in kube-system. The provider's own credentials
-Secret holds JSON the provider parses, so the autoscaler's plain token is
-copied from a separate key (spec.apiKeySecretRef) into the workload
-cluster by a provider-kubernetes Object using patchesFrom - the token
-never appears in composed state.
+groups by pool ID and authenticates to the Civo API with the
+civo-api-access Secret that Civo provisions in kube-system on every
+cluster, so no credentials are composed here.
 
 Unlike Vultr - whose managed GPU Operator add-on this function's Vultr
 counterpart gates cluster readiness on - Civo pre-installs no GPU
@@ -59,8 +56,6 @@ from crossplane.function.proto.v1 import run_function_pb2_grpc as grpcv1
 from models.ai.modelplane.infrastructure.civocluster import v1alpha1
 from models.io.crossplane.m.helm.providerconfig import v1beta1 as helmpcv1beta1
 from models.io.crossplane.m.helm.release import v1beta1 as helmv1beta1
-from models.io.crossplane.m.kubernetes.object import v1alpha1 as k8sobjv1alpha1
-from models.io.crossplane.m.kubernetes.providerconfig import v1alpha1 as k8spcv1alpha1
 from models.io.k8s.apimachinery.pkg.apis.meta import v1 as metav1
 from models.io.upbound.m.civo.kubernetes.cluster import v1beta1 as clusterv1beta1
 from models.io.upbound.m.civo.kubernetes.nodepool import v1beta1 as nodepoolv1beta1
@@ -107,6 +102,11 @@ _GPU_TAINT_EFFECT = "NoSchedule"
 # cluster creation. The built-in metrics-server default is kept.
 _REMOVE_DEFAULT_APPS = "-traefik2-nodeport"
 
+# CNI for the cluster, set at creation time only. Pinned to cilium: Civo
+# is deprecating flannel (still its default), so new clusters start on
+# the CNI that will remain supported.
+_CNI = "cilium"
+
 # The Kubernetes cluster autoscaler, installed on the workload cluster for
 # pools with maxNodeCount set. Chart pin matches compose-eks-cluster's.
 _AUTOSCALER_NAMESPACE = "kube-system"
@@ -114,27 +114,33 @@ _AUTOSCALER_CHART_REPO = "https://kubernetes.github.io/autoscaler"
 _AUTOSCALER_CHART_NAME = "cluster-autoscaler"
 _AUTOSCALER_CHART_VERSION = "9.57.0"
 
-# Secret the autoscaler's Civo cloud provider reads its API access from,
-# per its upstream contract: civo-api-access in kube-system with api-key,
-# api-url, cluster-id, and region keys.
+# Secret the autoscaler's Civo cloud provider reads its API access from:
+# civo-api-access in kube-system with api-key, api-url, cluster-id, and
+# region keys. Civo provisions it on every cluster (its CCM and node-agent
+# read it too), so it is referenced, never composed.
 _API_ACCESS_SECRET_NAME = "civo-api-access"
-_API_ACCESS_SECRET_NAMESPACE = "kube-system"
-_API_ACCESS_KEY_API_KEY = "api-key"
-_CIVO_API_URL = "https://api.civo.com"
 
 # Annotation the provider sets on a managed resource with its external
 # name - the resource's ID in Civo. The autoscaler addresses node groups
 # by pool ID, so the Helm release is templated from these.
 _ANNOTATION_EXTERNAL_NAME = "crossplane.io/external-name"
 
-# Compose the in-cluster resources (the autoscaler Helm release and its
-# API access Object) with Observe, Create and Update but not Delete.
-# Deleting them with the XR would mean asking provider-helm /
-# provider-kubernetes to reach a cluster whose kubeconfig Secret has
-# already been deleted, wedging their finalizers; orphaning them
-# sidesteps that - the in-cluster resources die with the cluster.
+# Compose the autoscaler Helm release with Observe, Create and Update but
+# not Delete. Deleting it with the XR would mean asking provider-helm to
+# reach a cluster whose kubeconfig Secret has already been deleted,
+# wedging its finalizer; orphaning it sidesteps that - the in-cluster
+# resources die with the cluster.
 _ManagementPolicy = Literal["Observe", "Create", "Update", "Delete", "LateInitialize", "*"]
 _ORPHAN_MANAGEMENT: list[_ManagementPolicy] = ["Observe", "Create", "Update"]
+
+# Node pool management policies that exclude LateInitialize, used for
+# autoscaled pools: nodeCount is seeded via initProvider so it is applied
+# only at creation and then left alone. The cluster autoscaler drives the
+# pool's node count; without this Crossplane would keep reverting it to
+# nodeCount and fight the autoscaler. (initProvider is gated on
+# enumerating management policies - the default "*" still late-initializes
+# nodeCount into forProvider, defeating the purpose.)
+_AUTOSCALED_POOL_MANAGEMENT: list[_ManagementPolicy] = ["Observe", "Create", "Update", "Delete"]
 
 
 def _name(meta: metav1.ObjectMeta | None) -> str:
@@ -211,11 +217,11 @@ class Composer:
         condition transiently regresses - that would delete them, and the
         NodePools are not orphaned, so their nodes would be deprovisioned
         with them. The dependents are composed as one block, so any observed
-        member means the block was composed before; the ProviderConfigs are
+        member means the block was composed before; the ProviderConfig is
         the sentinel, with the node pools covering partially-applied
         states."""
         observed = self.req.observed.resources
-        return "provider-config-kubernetes" in observed or any(name.startswith("node-pool-") for name in observed)
+        return "provider-config-helm" in observed or any(name.startswith("node-pool-") for name in observed)
 
     def _observed_external_name(self, name: str) -> str | None:
         """The Civo ID of an observed composed resource, from the
@@ -278,7 +284,7 @@ class Composer:
         fp = clusterv1beta1.ForProvider(
             name=_name(self.xr.metadata),
             region=self.xr.spec.region,
-            cni=self.xr.spec.cni,
+            cni=_CNI,
             applications=_REMOVE_DEFAULT_APPS,
             writeKubeconfig=True,
             networkIdSelector=clusterv1beta1.NetworkIdSelector(
@@ -318,30 +324,11 @@ class Composer:
             )
 
     def compose_provider_configs(self) -> None:
-        """Compose provider-kubernetes and provider-helm ProviderConfigs
-        pointing at the cluster's kubeconfig secret. The kubeconfig embeds
-        client certificates, so no identity block is needed. They serve the
-        cluster autoscaler's API access Object and Helm release."""
+        """Compose a provider-helm ProviderConfig pointing at the cluster's
+        kubeconfig secret. The kubeconfig embeds client certificates, so no
+        identity block is needed. It serves the cluster autoscaler's Helm
+        release."""
         kubeconfig_name = _kubeconfig_secret_name(self.xr)
-        resource.update(
-            self.rsp.desired.resources["provider-config-kubernetes"],
-            k8spcv1alpha1.ProviderConfig(
-                metadata=metav1.ObjectMeta(
-                    name=kubeconfig_name,
-                    namespace=_namespace(self.xr.metadata),
-                ),
-                spec=k8spcv1alpha1.Spec(
-                    credentials=k8spcv1alpha1.Credentials(
-                        source="Secret",
-                        secretRef=k8spcv1alpha1.SecretRef(
-                            namespace=_namespace(self.xr.metadata),
-                            name=kubeconfig_name,
-                            key=_SECRET_KEY_KUBECONFIG,
-                        ),
-                    ),
-                ),
-            ),
-        )
         resource.update(
             self.rsp.desired.resources["provider-config-helm"],
             helmpcv1beta1.ProviderConfig(
@@ -365,81 +352,26 @@ class Composer:
     def _autoscaled_pools(self) -> list[v1alpha1.NodePool]:
         return [p for p in self.xr.spec.nodePools if p.maxNodeCount is not None]
 
-    def _api_key_secret_ref(self) -> tuple[str, str, str]:
-        """The management-cluster Secret key holding a plain Civo API token
-        for the autoscaler, as (namespace, name, key)."""
-        ref = self.xr.spec.apiKeySecretRef
-        namespace = ref.namespace if ref and ref.namespace else "crossplane-system"
-        name = ref.name if ref and ref.name else "civo-credentials"
-        key = ref.key if ref and ref.key else "api-key"
-        return namespace, name, key
-
     def compose_cluster_autoscaler(self) -> None:
         """Provision the Kubernetes cluster autoscaler so pools with
         maxNodeCount scale within their min/max, the way VKE's server-side
         autoscaler does on Vultr. Its Civo cloud provider addresses node
         groups by pool ID and reads API access from the civo-api-access
-        Secret in kube-system, so two resources are composed: an Object
-        that materializes that Secret on the workload cluster (copying the
-        plain API token from the management cluster with patchesFrom, so
-        the token never appears in composed state), and the autoscaler Helm
-        release, templated from the observed pool IDs."""
-        pools = self._autoscaled_pools()
-        if not pools:
-            return
+        Secret Civo provisions in kube-system, so only the Helm release is
+        composed, templated from the observed pool IDs.
 
-        cluster_id = self._observed_external_name("cluster")
-        if cluster_id is None:
-            return
-
-        api_key_namespace, api_key_name, api_key_key = self._api_key_secret_ref()
-        resource.update(
-            self.rsp.desired.resources["autoscaler-api-access"],
-            k8sobjv1alpha1.Object(
-                metadata=metav1.ObjectMeta(namespace=_namespace(self.xr.metadata)),
-                spec=k8sobjv1alpha1.Spec(
-                    managementPolicies=_ORPHAN_MANAGEMENT,
-                    providerConfigRef=k8sobjv1alpha1.ProviderConfigRef(
-                        kind="ProviderConfig",
-                        name=_kubeconfig_secret_name(self.xr),
-                    ),
-                    references=[
-                        k8sobjv1alpha1.Reference(
-                            patchesFrom=k8sobjv1alpha1.PatchesFrom(
-                                apiVersion="v1",
-                                kind="Secret",
-                                namespace=api_key_namespace,
-                                name=api_key_name,
-                                fieldPath=f"data.{api_key_key}",
-                            ),
-                            toFieldPath=f"data.{_API_ACCESS_KEY_API_KEY}",
-                        ),
-                    ],
-                    forProvider=k8sobjv1alpha1.ForProvider(
-                        manifest={
-                            "apiVersion": "v1",
-                            "kind": "Secret",
-                            "metadata": {
-                                "name": _API_ACCESS_SECRET_NAME,
-                                "namespace": _API_ACCESS_SECRET_NAMESPACE,
-                            },
-                            "type": "Opaque",
-                            "stringData": {
-                                "cluster-id": cluster_id,
-                                "region": self.xr.spec.region,
-                                "api-url": _CIVO_API_URL,
-                            },
-                        },
-                    ),
-                ),
-            ),
-        )
-
+        The release is composed whenever the Ready-gated block is, even
+        with no autoscaled pools: its management policies exclude Delete
+        (see _ORPHAN_MANAGEMENT), so dropping it from desired state when
+        the last pool goes fixed-size would orphan a running autoscaler
+        that keeps scaling with its old node groups. Updating it to an
+        empty group list instead makes the chart render no Deployment,
+        removing the stale autoscaler."""
         # Node groups are addressed by pool ID, known only once each
         # NodePool exists. Pools whose ID is not yet observed are left out;
         # the next reconcile picks them up.
         groups = []
-        for pool in pools:
+        for pool in self._autoscaled_pools():
             pool_id = self._observed_external_name(f"node-pool-{pool.name}")
             if pool_id is None:
                 continue
@@ -450,8 +382,6 @@ class Composer:
                     "maxSize": pool.maxNodeCount,
                 },
             )
-        if not groups:
-            return
 
         resource.update(
             self.rsp.desired.resources["release-cluster-autoscaler"],
@@ -504,7 +434,6 @@ class Composer:
         fp = nodepoolv1beta1.ForProvider(
             label=pool.name,
             size=pool.size,
-            nodeCount=pool.nodeCount,
             # Region scopes every API call this resource makes; without it
             # the provider falls back to the account's default region.
             region=self.xr.spec.region,
@@ -523,15 +452,24 @@ class Composer:
                 ),
             ]
 
-        return nodepoolv1beta1.NodePool(
-            spec=nodepoolv1beta1.Spec(
-                providerConfigRef=nodepoolv1beta1.ProviderConfigRef(
-                    kind=self._cred_kind(),
-                    name=self._cred_name(),
-                ),
-                forProvider=fp,
+        spec = nodepoolv1beta1.Spec(
+            providerConfigRef=nodepoolv1beta1.ProviderConfigRef(
+                kind=self._cred_kind(),
+                name=self._cred_name(),
             ),
+            forProvider=fp,
         )
+
+        # The autoscaler owns an autoscaled pool's node count, so nodeCount
+        # only seeds it at creation (see _AUTOSCALED_POOL_MANAGEMENT). Fixed
+        # pools keep it in forProvider so drift is corrected.
+        if pool.maxNodeCount is not None:
+            spec.managementPolicies = _AUTOSCALED_POOL_MANAGEMENT
+            spec.initProvider = nodepoolv1beta1.InitProvider(nodeCount=pool.nodeCount)
+        else:
+            fp.nodeCount = pool.nodeCount
+
+        return nodepoolv1beta1.NodePool(spec=spec)
 
     def write_status(self) -> None:
         status = v1alpha1.Status(
@@ -549,13 +487,13 @@ class Composer:
         """Mark composed resources as ready based on their observed
         conditions.
 
-        The ProviderConfigs have no meaningful Ready condition and are
+        The ProviderConfig has no meaningful Ready condition and is
         always marked ready. All other resources (network, firewall,
         cluster, node pools, autoscaler) are marked ready only once their
         observed Ready condition is True.
         """
         for r in self.rsp.desired.resources:
-            if r in ("provider-config-kubernetes", "provider-config-helm"):
+            if r == "provider-config-helm":
                 self.rsp.desired.resources[r].ready = fnv1.READY_TRUE
                 continue
             if resource.get_condition(self.req.observed.resources.get(r), "Ready").status == "True":

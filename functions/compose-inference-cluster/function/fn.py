@@ -15,9 +15,9 @@
 """Compose an InferenceCluster.
 
 This function orchestrates the internal XRs that make up an inference
-cluster. It dispatches on the cluster source (GKE, EKS, AKS, Nebius,
-Vultr, Civo, or Existing) to determine how the cluster is obtained,
-then composes a ServingStack on it.
+cluster. It dispatches on the cluster source (GKE, EKS, etc., or
+Existing) to determine how the cluster is obtained, then composes a
+ServingStack on it.
 
 GPU node pools reference InferenceClasses. For provisioned clusters
 the class's provisioning block describes how to build the pool;

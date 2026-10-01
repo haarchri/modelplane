@@ -48,7 +48,7 @@ against this capacity without knowing which cluster it runs on.
 - A Vultr API key
 {{< /tab >}}
 {{< tab "Civo" >}}
-- A Civo account with access to GPU sizes
+- A Civo account with access to GPU node sizes
 - A Civo API key
 {{< /tab >}}
 {{< /tabs >}}
@@ -166,15 +166,13 @@ Apply the `ClusterProviderConfig` referencing your secret:
 {{< /tab >}}
 
 {{< tab "Civo" >}}
-Create a Kubernetes secret from your API key. The provider parses the
-JSON `creds` key; the plain `api-key` key is copied to each cluster for
-the Kubernetes cluster autoscaler:
+Create a Kubernetes secret from your API key, as the JSON `creds` key
+the provider parses:
 
 {{< editCode >}}
 ```bash
 kubectl create secret generic civo-credentials \
   --from-literal=creds='{"token": "$@<civo-api-key>$@"}' \
-  --from-literal=api-key=$@<civo-api-key>$@ \
   -n crossplane-system
 ```
 {{< /editCode >}}

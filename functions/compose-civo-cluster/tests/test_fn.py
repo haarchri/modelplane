@@ -141,7 +141,7 @@ def _cluster(
             "forProvider": {
                 "name": "test-cluster",
                 "region": "LON1",
-                "cni": "flannel",
+                "cni": "cilium",
                 "applications": "-traefik2-nodeport",
                 "writeKubeconfig": True,
                 "networkIdSelector": {"matchControllerRef": True},
@@ -149,28 +149,6 @@ def _cluster(
                 "pools": _SYSTEM_POOL,
             },
             "writeConnectionSecretToRef": {"name": _KUBECONFIG_SECRET_NAME},
-        },
-    }
-
-
-def _provider_config_kubernetes() -> dict:
-    """A provider-kubernetes ProviderConfig golden pointing at the kubeconfig."""
-    return {
-        "apiVersion": "kubernetes.m.crossplane.io/v1alpha1",
-        "kind": "ProviderConfig",
-        "metadata": {
-            "name": _KUBECONFIG_SECRET_NAME,
-            "namespace": "modelplane-system",
-        },
-        "spec": {
-            "credentials": {
-                "source": "Secret",
-                "secretRef": {
-                    "namespace": "modelplane-system",
-                    "name": _KUBECONFIG_SECRET_NAME,
-                    "key": "kubeconfig",
-                },
-            },
         },
     }
 
@@ -191,51 +169,6 @@ def _provider_config_helm() -> dict:
                     "namespace": "modelplane-system",
                     "name": _KUBECONFIG_SECRET_NAME,
                     "key": "kubeconfig",
-                },
-            },
-        },
-    }
-
-
-def _api_access() -> dict:
-    """The Object golden that copies the autoscaler's API access Secret to
-    the workload cluster."""
-    return {
-        "apiVersion": "kubernetes.m.crossplane.io/v1alpha1",
-        "kind": "Object",
-        "metadata": {"namespace": "modelplane-system"},
-        "spec": {
-            "managementPolicies": ["Observe", "Create", "Update"],
-            "providerConfigRef": {
-                "kind": "ProviderConfig",
-                "name": _KUBECONFIG_SECRET_NAME,
-            },
-            "references": [
-                {
-                    "patchesFrom": {
-                        "apiVersion": "v1",
-                        "kind": "Secret",
-                        "namespace": "crossplane-system",
-                        "name": "civo-credentials",
-                        "fieldPath": "data.api-key",
-                    },
-                    "toFieldPath": "data.api-key",
-                },
-            ],
-            "forProvider": {
-                "manifest": {
-                    "apiVersion": "v1",
-                    "kind": "Secret",
-                    "metadata": {
-                        "name": "civo-api-access",
-                        "namespace": "kube-system",
-                    },
-                    "type": "Opaque",
-                    "stringData": {
-                        "cluster-id": _CLUSTER_ID,
-                        "region": "LON1",
-                        "api-url": "https://api.civo.com",
-                    },
                 },
             },
         },
@@ -279,25 +212,33 @@ def _node_pool(
     taint: list | None = None,
     cred_kind: str = "ClusterProviderConfig",
     cred_name: str = "default",
+    autoscaled: bool = False,
 ) -> dict:
-    """A NodePool golden."""
+    """A NodePool golden. Autoscaled pools seed nodeCount via initProvider
+    so the autoscaler owns it after creation; fixed pools keep it in
+    forProvider."""
     fp: dict[str, Any] = {
         "label": label,
         "size": size,
-        "nodeCount": node_count,
         "region": "LON1",
         "labels": labels,
         "clusterIdSelector": {"matchControllerRef": True},
     }
     if taint:
         fp["taint"] = taint
+    spec: dict[str, Any] = {
+        "providerConfigRef": {"kind": cred_kind, "name": cred_name},
+        "forProvider": fp,
+    }
+    if autoscaled:
+        spec["managementPolicies"] = ["Observe", "Create", "Update", "Delete"]
+        spec["initProvider"] = {"nodeCount": node_count}
+    else:
+        fp["nodeCount"] = node_count
     return {
         "apiVersion": "kubernetes.civo.m.upbound.io/v1beta1",
         "kind": "NodePool",
-        "spec": {
-            "providerConfigRef": {"kind": cred_kind, "name": cred_name},
-            "forProvider": fp,
-        },
+        "spec": spec,
     }
 
 
@@ -363,6 +304,7 @@ _GPU_POOL_GOLDEN = _node_pool(
         "modelplane.ai/gpu": "nvidia-l40s",
     },
     taint=_GPU_TAINT,
+    autoscaled=True,
 )
 
 
@@ -401,7 +343,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 ),
             ),
             Case(
-                name="node pools and provider configs composed once cluster is Ready; autoscaler withheld until pool IDs observed",
+                name="node pools and provider config composed once cluster is Ready; autoscaler has no groups until pool IDs observed",
                 req=_req(
                     [_GPU_POOL],
                     observed_resources={
@@ -426,16 +368,12 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "node-pool-gpu-l40s": fnv1.Resource(
                                 resource=resource.dict_to_struct(_GPU_POOL_GOLDEN),
                             ),
-                            "provider-config-kubernetes": fnv1.Resource(
-                                resource=resource.dict_to_struct(_provider_config_kubernetes()),
-                                ready=fnv1.READY_TRUE,
-                            ),
                             "provider-config-helm": fnv1.Resource(
                                 resource=resource.dict_to_struct(_provider_config_helm()),
                                 ready=fnv1.READY_TRUE,
                             ),
-                            "autoscaler-api-access": fnv1.Resource(
-                                resource=resource.dict_to_struct(_api_access()),
+                            "release-cluster-autoscaler": fnv1.Resource(
+                                resource=resource.dict_to_struct(_autoscaler([])),
                             ),
                         },
                     ),
@@ -470,16 +408,9 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                 resource=resource.dict_to_struct(_GPU_POOL_GOLDEN),
                                 ready=fnv1.READY_TRUE,
                             ),
-                            "provider-config-kubernetes": fnv1.Resource(
-                                resource=resource.dict_to_struct(_provider_config_kubernetes()),
-                                ready=fnv1.READY_TRUE,
-                            ),
                             "provider-config-helm": fnv1.Resource(
                                 resource=resource.dict_to_struct(_provider_config_helm()),
                                 ready=fnv1.READY_TRUE,
-                            ),
-                            "autoscaler-api-access": fnv1.Resource(
-                                resource=resource.dict_to_struct(_api_access()),
                             ),
                             "release-cluster-autoscaler": fnv1.Resource(
                                 resource=resource.dict_to_struct(
@@ -499,7 +430,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                     [_GPU_POOL],
                     observed_resources={
                         "cluster": _observed_unready(_cluster(), external_name=_CLUSTER_ID),
-                        "provider-config-kubernetes": _observed_ready(_provider_config_kubernetes()),
+                        "provider-config-helm": _observed_ready(_provider_config_helm()),
                     },
                 ),
                 want=fnv1.RunFunctionResponse(
@@ -519,16 +450,12 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                             "node-pool-gpu-l40s": fnv1.Resource(
                                 resource=resource.dict_to_struct(_GPU_POOL_GOLDEN),
                             ),
-                            "provider-config-kubernetes": fnv1.Resource(
-                                resource=resource.dict_to_struct(_provider_config_kubernetes()),
-                                ready=fnv1.READY_TRUE,
-                            ),
                             "provider-config-helm": fnv1.Resource(
                                 resource=resource.dict_to_struct(_provider_config_helm()),
                                 ready=fnv1.READY_TRUE,
                             ),
-                            "autoscaler-api-access": fnv1.Resource(
-                                resource=resource.dict_to_struct(_api_access()),
+                            "release-cluster-autoscaler": fnv1.Resource(
+                                resource=resource.dict_to_struct(_autoscaler([])),
                             ),
                         },
                     ),
@@ -536,7 +463,7 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                 ),
             ),
             Case(
-                name="fixed-size GPU pool composes no autoscaler",
+                name="fixed-size GPU pool composes the autoscaler release with no node groups",
                 req=_req(
                     [
                         v1alpha1.NodePool(
@@ -580,13 +507,12 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     ),
                                 ),
                             ),
-                            "provider-config-kubernetes": fnv1.Resource(
-                                resource=resource.dict_to_struct(_provider_config_kubernetes()),
-                                ready=fnv1.READY_TRUE,
-                            ),
                             "provider-config-helm": fnv1.Resource(
                                 resource=resource.dict_to_struct(_provider_config_helm()),
                                 ready=fnv1.READY_TRUE,
+                            ),
+                            "release-cluster-autoscaler": fnv1.Resource(
+                                resource=resource.dict_to_struct(_autoscaler([])),
                             ),
                         },
                     ),
@@ -663,13 +589,12 @@ class TestFunctionRunner(unittest.IsolatedAsyncioTestCase):
                                     ),
                                 ),
                             ),
-                            "provider-config-kubernetes": fnv1.Resource(
-                                resource=resource.dict_to_struct(_provider_config_kubernetes()),
-                                ready=fnv1.READY_TRUE,
-                            ),
                             "provider-config-helm": fnv1.Resource(
                                 resource=resource.dict_to_struct(_provider_config_helm()),
                                 ready=fnv1.READY_TRUE,
+                            ),
+                            "release-cluster-autoscaler": fnv1.Resource(
+                                resource=resource.dict_to_struct(_autoscaler([])),
                             ),
                         },
                     ),

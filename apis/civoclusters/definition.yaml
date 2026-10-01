@@ -11,8 +11,6 @@ spec:
     - infrastructure
     kind: CivoCluster
     plural: civoclusters
-    shortNames:
-    - cks
   scope: Namespaced
   versions:
   - name: v1alpha1
@@ -59,15 +57,6 @@ spec:
                   Defaults to Civo's current default version.
                 minLength: 1
                 maxLength: 32
-              cni:
-                type: string
-                default: flannel
-                description: >-
-                  CNI plugin for the cluster. Civo supports flannel (its
-                  default) and cilium. Set at creation time only.
-                enum:
-                - flannel
-                - cilium
               credentials:
                 type: object
                 description: >-
@@ -84,34 +73,6 @@ spec:
                   name:
                     type: string
                     default: default
-                    minLength: 1
-                    maxLength: 253
-              apiKeySecretRef:
-                type: object
-                description: >-
-                  Reference to a Secret key holding a plain Civo API token.
-                  The Kubernetes cluster autoscaler installed for pools with
-                  maxNodeCount set scales node pools through the Civo API,
-                  and its token is copied to the workload cluster from this
-                  key. The provider's own credentials Secret holds JSON, so
-                  the plain token is a separate key; the getting started
-                  guide creates both keys in one Secret. Defaults to the
-                  api-key key of the civo-credentials Secret in the
-                  crossplane-system namespace.
-                properties:
-                  name:
-                    type: string
-                    default: civo-credentials
-                    minLength: 1
-                    maxLength: 253
-                  namespace:
-                    type: string
-                    default: crossplane-system
-                    minLength: 1
-                    maxLength: 63
-                  key:
-                    type: string
-                    default: api-key
                     minLength: 1
                     maxLength: 253
               nodePools:

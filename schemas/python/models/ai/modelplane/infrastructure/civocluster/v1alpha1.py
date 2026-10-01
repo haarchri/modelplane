@@ -10,12 +10,6 @@ from pydantic import AwareDatetime, BaseModel, Field, conint, constr
 from .....io.k8s.apimachinery.pkg.apis.meta import v1
 
 
-class ApiKeySecretRef(BaseModel):
-    key: constr(min_length=1, max_length=253) | None = 'api-key'
-    name: constr(min_length=1, max_length=253) | None = 'civo-credentials'
-    namespace: constr(min_length=1, max_length=63) | None = 'crossplane-system'
-
-
 class Credentials(BaseModel):
     name: constr(min_length=1, max_length=253) | None = 'default'
     type: Literal['ProviderConfig', 'ClusterProviderConfig'] | None = (
@@ -93,14 +87,6 @@ class NodePool(BaseModel):
 
 
 class Spec(BaseModel):
-    apiKeySecretRef: ApiKeySecretRef | None = None
-    """
-    Reference to a Secret key holding a plain Civo API token. The Kubernetes cluster autoscaler installed for pools with maxNodeCount set scales node pools through the Civo API, and its token is copied to the workload cluster from this key. The provider's own credentials Secret holds JSON, so the plain token is a separate key; the getting started guide creates both keys in one Secret. Defaults to the api-key key of the civo-credentials Secret in the crossplane-system namespace.
-    """
-    cni: Literal['flannel', 'cilium'] | None = 'flannel'
-    """
-    CNI plugin for the cluster. Civo supports flannel (its default) and cilium. Set at creation time only.
-    """
     credentials: Credentials | None = None
     """
     Civo ProviderConfig or ClusterProviderConfig used to authenticate to the Civo API. Defaults to the ClusterProviderConfig named default.
