@@ -1436,7 +1436,14 @@ COMPOSE_CASES = [
                                 "metadata": {"name": "test-cluster", "namespace": "modelplane-system"},
                                 "spec": {
                                     "region": "us-central1",
-                                    "nodePools": [{"name": "system", "role": "System", "machineType": "e2-standard-4"}],
+                                    "nodePools": [
+                                        {
+                                            "name": "system",
+                                            "role": "System",
+                                            "machineType": "e2-standard-4",
+                                            "maxNodeCount": 3,
+                                        },
+                                    ],
                                 },
                                 "status": {
                                     "conditions": [
@@ -3422,7 +3429,14 @@ COMPOSE_CASES = [
                                 "metadata": {"name": "test-cluster", "namespace": "modelplane-system"},
                                 "spec": {
                                     "region": "us-central1",
-                                    "nodePools": [{"name": "system", "role": "System", "machineType": "e2-standard-4"}],
+                                    "nodePools": [
+                                        {
+                                            "name": "system",
+                                            "role": "System",
+                                            "machineType": "e2-standard-4",
+                                            "maxNodeCount": 3,
+                                        },
+                                    ],
                                 },
                                 "status": {
                                     "conditions": [

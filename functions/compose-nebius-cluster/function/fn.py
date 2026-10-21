@@ -233,10 +233,26 @@ class Composer:
         creds = self.xr.spec.credentials
         return creds.name if creds and creds.name else "default"
 
-    def _has_user_system_pool(self) -> bool:
-        """Whether the spec declares its own System pool, replacing the
-        injected default."""
-        return any(pool.role == "System" for pool in self.xr.spec.nodePools)
+    def _keep_injected_system_pool(self) -> bool:
+        """Whether to compose the injected default system node group.
+
+        Always when the spec declares no System pool. When it does, an
+        already-existing injected group is kept until a declared System pool
+        is observed Ready, so the serving stack has nodes to run on during
+        the handover; after that the injected group drops out of desired
+        state and is deleted. A declared pool named like the injected one
+        takes over its resource key, so there is nothing to hand over."""
+        system_pools = [p for p in self.xr.spec.nodePools if p.role == "System"]
+        if not system_pools:
+            return True
+        if any(p.name == _SYSTEM_POOL_NAME for p in system_pools):
+            return False
+        if f"nodegroup-{_SYSTEM_POOL_NAME}" not in self.req.observed.resources:
+            return False
+        return not any(
+            resource.get_condition(self.req.observed.resources.get(f"nodegroup-{p.name}"), "Ready").status == "True"
+            for p in system_pools
+        )
 
     def compose(self) -> None:
         # Credentials gate only their consumers: the ProviderConfigs, the CSI
@@ -553,7 +569,7 @@ class Composer:
             resource.update(self.rsp.desired.resources[f"gpu-cluster-{fabric}"], gpu_cluster)
 
     def compose_node_groups(self) -> None:
-        if not self._has_user_system_pool():
+        if self._keep_injected_system_pool():
             self._compose_system_group()
         for pool in self.xr.spec.nodePools:
             labels = {_LABEL_POOL: pool.name}
@@ -798,7 +814,7 @@ class Composer:
             "filesystem",
         ]
         managed_resources += [f"gpu-cluster-{fabric}" for fabric in self._fabrics()]
-        if not self._has_user_system_pool():
+        if self._keep_injected_system_pool():
             managed_resources.append(f"nodegroup-{_SYSTEM_POOL_NAME}")
         managed_resources += [f"nodegroup-{pool.name}" for pool in self.xr.spec.nodePools]
         # The CSI driver Helm release is only composed once the cluster is

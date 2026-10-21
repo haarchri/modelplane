@@ -340,6 +340,13 @@ class Composer:
                     matchControllerRef=True,
                 ),
             )
+        # Keep the rotation name within Azure's 12-character pool name
+        # limit while distinct from the pool's own name: a 12-character
+        # name ending in tmp would derive itself, so it rotates through
+        # a rot suffix instead.
+        rotation_name = f"{pool.name[:9]}tmp"
+        if rotation_name == pool.name:
+            rotation_name = f"{pool.name[:9]}rot"
         return clusterv1beta1.DefaultNodePool(
             name=pool.name,
             vmSize=pool.vmSize,
@@ -347,9 +354,7 @@ class Composer:
             minCount=pool.minNodeCount,
             maxCount=pool.maxNodeCount,
             osDiskSizeGb=pool.diskSizeGb,
-            # Keep the rotation name within Azure's 12-character pool name
-            # limit while distinct from the pool's own name.
-            temporaryNameForRotation=f"{pool.name[:9]}tmp",
+            temporaryNameForRotation=rotation_name,
             nodeLabels={_LABEL_POOL: pool.name},
             upgradeSettings=clusterv1beta1.UpgradeSettings(maxSurge=_MAX_SURGE),
             vnetSubnetIdSelector=clusterv1beta1.VnetSubnetIdSelector(

@@ -75,7 +75,25 @@ nodePools:
 
 A System pool specifies the cloud's machine size directly in `instanceType`
 rather than referencing an `InferenceClass`, and declaring one replaces the
-pool Modelplane would otherwise create. Keep `minNodeCount` at 1 or higher.
+pool Modelplane would otherwise create. A System pool autoscales between
+`minNodeCount` (keep it at 1 or higher) and `maxNodeCount`, and requires
+both. Civo is the exception: the pool maps to the cluster's create-only
+inline pool, which the cluster autoscaler cannot scale, so `maxNodeCount`
+is rejected there and the pool holds the larger of `nodeCount` and
+`minNodeCount` nodes.
+
+Declaring a System pool on a running cluster moves the serving stack:
+
+- On GKE, EKS, and Nebius the injected pool is kept until the declared
+  pool is Ready, then deleted, and the serving stack reschedules onto the
+  new nodes.
+- On AKS the declared pool becomes the cluster's default node pool, which
+  AKS rotates through a temporary pool, recycling every node in it. The
+  rotation also happens when a pool keeps the name `system` but changes
+  its VM size.
+- On Vultr and Civo, System pools map to the cluster's create-only inline
+  pool, so they are immutable: declare them when you create the cluster,
+  and recreate it to change them.
 
 GPU pools are optional too. Omit `nodePools` entirely, or declare only a
 System pool, for a cluster that doesn't serve models of its own, such as

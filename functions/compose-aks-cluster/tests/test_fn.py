@@ -721,6 +721,80 @@ COMPOSE_CASES = [
         ),
     ),
     Case(
+        name="DeclaredSystemPoolRotationCollision",
+        reason="A declared System pool whose 12-character name ends in tmp would derive its own name for rotation, so the default node pool rotates through a rot suffix instead.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="abcdefghitmp",
+                            role="System",
+                            vmSize="Standard_D8s_v5",
+                            diskSizeGb=100,
+                            nodeCount=1,
+                            minNodeCount=1,
+                            maxNodeCount=3,
+                        ),
+                        v1alpha1.NodePool(
+                            name="gpuh100",
+                            role="GPU",
+                            vmSize="Standard_ND96isr_H100_v5",
+                            diskSizeGb=200,
+                            nodeCount=1,
+                            minNodeCount=1,
+                            maxNodeCount=4,
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-h100"),
+                        ),
+                    ],
+                ),
+            ),
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "resource-group": _resource_group(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "virtual-network": _virtual_network(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "subnet": _subnet(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        default_pool={
+                            "name": "abcdefghitmp",
+                            "vmSize": "Standard_D8s_v5",
+                            "autoScalingEnabled": True,
+                            "minCount": 1,
+                            "maxCount": 3,
+                            "osDiskSizeGb": 100,
+                            "temporaryNameForRotation": "abcdefghirot",
+                            "nodeLabels": {"modelplane.ai/pool": "abcdefghitmp"},
+                            "upgradeSettings": {"maxSurge": "10%"},
+                            "vnetSubnetIdSelector": {"matchControllerRef": True},
+                        },
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    # The System pool is the cluster's inline default pool, so
+                    # only the GPU pool composes an agent pool.
+                    "nodepool-gpuh100": _nodepool_gpu(
+                        cred_kind="ClusterProviderConfig", cred_name="default", zones=None, ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+        ),
+    ),
+    Case(
         name="SecondSystemPool",
         reason="A second declared System pool composes as a System-mode agent pool while the first stays the cluster's default node pool.",
         req=fnv1.RunFunctionRequest(

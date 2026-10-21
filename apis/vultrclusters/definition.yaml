@@ -38,6 +38,9 @@ spec:
             required:
             - region
             - nodePools
+            x-kubernetes-validations:
+            - rule: "self.nodePools.filter(p, p.role == 'System') == oldSelf.nodePools.filter(p, p.role == 'System')"
+              message: System pools map to the cluster's create-only inline pool and are immutable; recreate the cluster to change them.
             properties:
               region:
                 type: string

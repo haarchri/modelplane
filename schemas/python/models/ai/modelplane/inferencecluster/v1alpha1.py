@@ -295,9 +295,9 @@ class Spec(BaseModel):
     """
     Configures how Crossplane will reconcile this composite resource
     """
-    nodePools: list[NodePool] | None = Field(None, max_length=8, min_length=1)
+    nodePools: list[NodePool] | None = Field(None, max_length=8)
     """
-    Node pools available on this cluster. GPU pools (the default role) reference an InferenceClass that describes the hardware shape and (for provisioned clusters) how to create the pool. System pools host the serving stack and other infrastructure components; one is provisioned automatically unless you declare your own with role System, in which case only your System pools are created. Omit nodePools entirely for a cluster without GPU pools, for example one that only hosts the inference gateway.
+    Node pools available on this cluster. GPU pools (the default role) reference an InferenceClass that describes the hardware shape and (for provisioned clusters) how to create the pool. System pools host the serving stack and other infrastructure components; one is provisioned automatically unless you declare your own with role System, in which case only your System pools are created. Omit nodePools (or declare only System pools) for a cluster without GPU pools, such as one that only hosts the inference gateway.
     """
     placement: Placement | None = None
     """
