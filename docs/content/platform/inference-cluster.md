@@ -79,8 +79,8 @@ pool Modelplane would otherwise create. A System pool autoscales between
 `minNodeCount` (keep it at 1 or higher) and `maxNodeCount`, and requires
 both. Civo is the exception: the pool maps to the cluster's create-only
 inline pool, which the cluster autoscaler cannot scale, so `maxNodeCount`
-is rejected there and the pool holds the larger of `nodeCount` and
-`minNodeCount` nodes.
+is rejected there and the pool's node count is the larger of `nodeCount`
+and `minNodeCount`.
 
 Declaring a System pool on a running cluster moves the serving stack:
 

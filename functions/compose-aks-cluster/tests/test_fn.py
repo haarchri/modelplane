@@ -721,7 +721,7 @@ COMPOSE_CASES = [
         ),
     ),
     Case(
-        name="DeclaredSystemPoolRotationCollision",
+        name="RotationNameCollision",
         reason="A declared System pool whose 12-character name ends in tmp would derive its own name for rotation, so the default node pool rotates through a rot suffix instead.",
         req=fnv1.RunFunctionRequest(
             observed=fnv1.State(
