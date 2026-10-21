@@ -62,9 +62,10 @@ from models.io.upbound.m.nebius.providerconfig import v1beta1 as nebiuspcv1beta1
 from models.io.upbound.m.nebius.vpc.network import v1beta1 as networkv1beta1
 from models.io.upbound.m.nebius.vpc.subnet import v1beta1 as subnetv1beta1
 
-# System pool injected into every mk8s cluster to host control-plane
-# components (Envoy Gateway, LeaderWorkerSet, cert-manager, etc.). Not part of
-# the user-facing API - compose-inference-cluster only passes GPU pools.
+# System pool injected into an mk8s cluster to host control-plane
+# components (Envoy Gateway, LeaderWorkerSet, cert-manager, etc.) when the
+# spec declares no System pool of its own. Declared System pools compose
+# like any other pool and replace this default.
 _SYSTEM_POOL_NAME = "system"
 _SYSTEM_POOL_PLATFORM = "cpu-d3"
 _SYSTEM_POOL_PRESET = "4vcpu-16gb"
@@ -231,6 +232,11 @@ class Composer:
     def _cred_name(self) -> str:
         creds = self.xr.spec.credentials
         return creds.name if creds and creds.name else "default"
+
+    def _has_user_system_pool(self) -> bool:
+        """Whether the spec declares its own System pool, replacing the
+        injected default."""
+        return any(pool.role == "System" for pool in self.xr.spec.nodePools)
 
     def compose(self) -> None:
         # Credentials gate only their consumers: the ProviderConfigs, the CSI
@@ -547,7 +553,8 @@ class Composer:
             resource.update(self.rsp.desired.resources[f"gpu-cluster-{fabric}"], gpu_cluster)
 
     def compose_node_groups(self) -> None:
-        self._compose_system_group()
+        if not self._has_user_system_pool():
+            self._compose_system_group()
         for pool in self.xr.spec.nodePools:
             labels = {_LABEL_POOL: pool.name}
             if pool.role == "GPU" and pool.gpu:
@@ -791,7 +798,8 @@ class Composer:
             "filesystem",
         ]
         managed_resources += [f"gpu-cluster-{fabric}" for fabric in self._fabrics()]
-        managed_resources.append(f"nodegroup-{_SYSTEM_POOL_NAME}")
+        if not self._has_user_system_pool():
+            managed_resources.append(f"nodegroup-{_SYSTEM_POOL_NAME}")
         managed_resources += [f"nodegroup-{pool.name}" for pool in self.xr.spec.nodePools]
         # The CSI driver Helm release is only composed once the cluster is
         # observed, so only mark it ready when it's actually in desired state -

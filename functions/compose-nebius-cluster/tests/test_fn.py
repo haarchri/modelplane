@@ -700,6 +700,173 @@ COMPOSE_CASES = [
             ),
         ),
     ),
+    Case(
+        name="DeclaredSystemPool",
+        reason="A NebiusCluster that declares its own System pool composes a node group from it instead of injecting the default system node group.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="sys",
+                            role="System",
+                            platform="cpu-d3",
+                            preset="8vcpu-32gb",
+                            diskSizeGb=100,
+                            minNodeCount=1,
+                            maxNodeCount=3,
+                        ),
+                        v1alpha1.NodePool(
+                            name="gpu-h100",
+                            role="GPU",
+                            platform="gpu-h100-sxm",
+                            preset="8gpu-128vcpu-1600gb",
+                            diskSizeGb=200,
+                            nodeCount=1,
+                            maxNodeCount=4,
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-h100"),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "nebius-provider-config": fnv1.Resources(
+                    items=[_nebius_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(credentials_secret=True),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "subnet": _subnet(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "filesystem": _filesystem(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "cloud-init": _cloud_init_secret(),
+                    "nodegroup-sys": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "mk8s.nebius.m.upbound.io/v1beta1",
+                                "kind": "NodeGroup",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "name": "test-cluster-sys",
+                                        "parentIdSelector": {"matchControllerRef": True},
+                                        "version": "1.34",
+                                        "autoscaling": {"minNodeCount": 1, "maxNodeCount": 3},
+                                        "template": {
+                                            "resources": {"platform": "cpu-d3", "preset": "8vcpu-32gb"},
+                                            "bootDisk": {"sizeGibibytes": 100, "type": "NETWORK_SSD"},
+                                            "networkInterfaces": [
+                                                {"subnetIdSelector": {"matchControllerRef": True}},
+                                            ],
+                                            "filesystems": [
+                                                {
+                                                    "attachMode": "READ_WRITE",
+                                                    "mountTag": "modelplane-cache",
+                                                    "existingFilesystem": {"idSelector": {"matchControllerRef": True}},
+                                                },
+                                            ],
+                                            "cloudInitUserDataSecretRef": {
+                                                "name": "test-cluster-cloud-init-fd2f2",
+                                                "key": "userData",
+                                            },
+                                            "metadata": {"labels": {"modelplane.ai/pool": "sys"}},
+                                        },
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "nodegroup-gpu-h100": _nodegroup_gpu(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        autoscaling={"minNodeCount": 1, "maxNodeCount": 4},
+                        fixed_node_count=None,
+                        fabric=None,
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "nebius-provider-config": fnv1.ResourceSelector(
+                        api_version="nebius.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="NoNodePools",
+        reason="A NebiusCluster with no node pools composes its Nebius infrastructure and the injected default system node group alone, so the cluster can host only the inference gateway.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[],
+                ),
+            ),
+            required_resources={
+                "nebius-provider-config": fnv1.Resources(
+                    items=[_nebius_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(credentials_secret=True),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "subnet": _subnet(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "cluster": _cluster(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "filesystem": _filesystem(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "cloud-init": _cloud_init_secret(),
+                    "nodegroup-system": _nodegroup_system(
+                        cred_kind="ClusterProviderConfig", cred_name="default", ready=fnv1.READY_UNSPECIFIED
+                    ),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "nebius-provider-config": fnv1.ResourceSelector(
+                        api_version="nebius.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
     # The release tolerates the GPU taint so its node plugin runs on the GPU
     # nodes, where engine pods mount cache PVCs.
     Case(

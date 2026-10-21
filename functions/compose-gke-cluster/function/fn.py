@@ -51,9 +51,10 @@ from models.io.upbound.m.gcp.providerconfig import v1beta1 as gcppcv1beta1
 _RANGE_PODS = "pods"
 _RANGE_SERVICES = "services"
 
-# System pool injected into every GKE cluster to host control-plane
-# components (Envoy Gateway, LeaderWorkerSet, cert-manager, etc.). Not part of
-# the user-facing API — compose-inference-cluster only passes GPU pools.
+# System pool injected into a GKE cluster to host control-plane
+# components (Envoy Gateway, LeaderWorkerSet, cert-manager, etc.) when the
+# spec declares no System pool of its own. Declared System pools compose
+# like any other pool and replace this default.
 _SYSTEM_POOL_NAME = "system"
 _SYSTEM_POOL_MACHINE_TYPE = "e2-standard-4"
 _SYSTEM_POOL_NODE_COUNT = 1
@@ -171,6 +172,11 @@ class Composer:
     def _cred_name(self) -> str:
         creds = self.xr.spec.credentials
         return creds.name if creds and creds.name else "default"
+
+    def _has_user_system_pool(self) -> bool:
+        """Whether the spec declares its own System pool, replacing the
+        injected default."""
+        return any(pool.role == "System" for pool in self.xr.spec.nodePools)
 
     def resolve_project(self) -> str | None:
         """Fetch the GCP provider config and return its projectID.
@@ -366,7 +372,8 @@ class Composer:
         )
 
     def compose_node_pools(self) -> None:
-        self._compose_system_pool()
+        if not self._has_user_system_pool():
+            self._compose_system_pool()
         for pool in self.xr.spec.nodePools:
             node_config = nodepoolv1beta1.NodeConfig(
                 machineType=pool.machineType,
@@ -655,7 +662,8 @@ class Composer:
             "service-account",
             "service-account-key",
         ]
-        managed_resources.append(f"nodepool-{_SYSTEM_POOL_NAME}")
+        if not self._has_user_system_pool():
+            managed_resources.append(f"nodepool-{_SYSTEM_POOL_NAME}")
         managed_resources += [f"nodepool-{pool.name}" for pool in self.xr.spec.nodePools]
         if self.observed_sa_email():
             managed_resources.append("iam-binding")

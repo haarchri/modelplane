@@ -44,12 +44,44 @@ The `cluster.source` discriminator picks one of two models:
   pools from each pool's `InferenceClass`, labels the pool's nodes so the
   scheduler's placement is enforced, and provisions the storage class for model
   weights. It also injects a non-GPU **system pool** with opinionated defaults to
-  run the inference stack, so you only declare the GPU pools you want.
+  run the inference stack, so you only declare the GPU pools you want. To size
+  the system pool yourself, declare one - see
+  [System node pools](#system-node-pools).
 - **Existing (`Existing`).** A kubeconfig `Secret` provides access to a cluster
   you run yourself. Modelplane installs the serving stack it needs but doesn't
   provision infrastructure, and each pool's `InferenceClass` provides hardware
   capabilities for scheduling only. You're responsible for the cluster meeting
   [Modelplane's requirements](#requirements-for-an-existing-cluster).
+
+## System node pools
+
+A provisioned cluster has a **system pool**: a few non-GPU nodes that run
+the inference stack. Modelplane creates one with sensible defaults, so most
+clusters never mention it.
+
+To pick the machine size or node counts yourself, declare the pool with
+`role: System`:
+
+```yaml
+nodePools:
+  - name: system
+    role: System
+    instanceType: m6i.2xlarge
+    minNodeCount: 1
+    maxNodeCount: 3
+  - name: h100-pool
+    className: h100-8x
+```
+
+A System pool specifies the cloud's machine size directly in `instanceType`
+rather than referencing an `InferenceClass`, and declaring one replaces the
+pool Modelplane would otherwise create. Keep `minNodeCount` at 1 or higher.
+
+GPU pools are optional too. Omit `nodePools` entirely, or declare only a
+System pool, for a cluster that doesn't serve models of its own, such as
+one that only hosts the inference gateway. The system pool and the serving
+stack still come up, and `status.gpuPools` is empty, so no `ModelDeployment`
+schedules there.
 
 ## Requirements for an existing cluster
 

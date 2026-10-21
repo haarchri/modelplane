@@ -208,7 +208,7 @@ def _cluster(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
 
 
 def _nodepool_system(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
-    """The composed system NodePool the function adds to every cluster."""
+    """The composed system NodePool the function injects when the spec declares no System pool."""
     return fnv1.Resource(
         resource=resource.dict_to_struct(
             {
@@ -735,6 +735,159 @@ COMPOSE_CASES = [
                         kind="ProviderConfig",
                         match_name="my-gcp-account",
                         namespace="modelplane-system",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="DeclaredSystemPool",
+        reason="A System pool the spec declares composes like any other pool and replaces the injected default system node pool.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="sys",
+                            role="System",
+                            machineType="e2-standard-8",
+                            nodeCount=2,
+                            minNodeCount=1,
+                            maxNodeCount=3,
+                        ),
+                        v1alpha1.NodePool(
+                            name="gpu-pool",
+                            role="GPU",
+                            machineType="a2-highgpu-8g",
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-tesla-a100", acceleratorCount=8),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    # Unlike the injected default system pool, a declared one
+                    # carries the schema's diskSizeGb default.
+                    "nodepool-sys": fnv1.Resource(
+                        resource=resource.dict_to_struct(
+                            {
+                                "apiVersion": "container.gcp.m.upbound.io/v1beta1",
+                                "kind": "NodePool",
+                                "spec": {
+                                    "providerConfigRef": {"kind": "ClusterProviderConfig", "name": "default"},
+                                    "forProvider": {
+                                        "location": "us-central1",
+                                        "clusterSelector": {"matchControllerRef": True},
+                                        "initialNodeCount": 2,
+                                        "autoscaling": {"minNodeCount": 1, "maxNodeCount": 3},
+                                        "nodeConfig": {
+                                            "machineType": "e2-standard-8",
+                                            "diskSizeGb": 100,
+                                            "imageType": "COS_CONTAINERD",
+                                            "oauthScopes": [
+                                                "https://www.googleapis.com/auth/cloud-platform",
+                                            ],
+                                            "labels": {"modelplane.ai/pool": "sys"},
+                                        },
+                                    },
+                                },
+                            }
+                        ),
+                    ),
+                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="NoNodePools",
+        reason="With no node pools declared, a GKECluster still composes the injected default system pool and nothing else, so a cluster can host only the inference gateway.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
                     ),
                 },
             ),
