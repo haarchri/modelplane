@@ -1529,12 +1529,12 @@ def _collector_config(
                                         "__meta_kubernetes_pod_label_app",
                                     ],
                                     "action": "keep",
-                                    "regex": ".*dcgm.*",
+                                    "regex": ".*dcgm.*|.*metrics-exporter.*",
                                 },
                                 {
                                     "source_labels": ["__meta_kubernetes_pod_container_port_name"],
                                     "action": "keep",
-                                    "regex": "metrics",
+                                    "regex": "metrics|exporter-port",
                                 },
                                 {"source_labels": ["__meta_kubernetes_pod_node_name"], "target_label": "node"},
                             ],
@@ -1567,7 +1567,7 @@ def _collector_config(
                                         "__meta_kubernetes_pod_label_app",
                                     ],
                                     "action": "drop",
-                                    "regex": ".*dcgm.*",
+                                    "regex": ".*dcgm.*|.*metrics-exporter.*",
                                 },
                                 {
                                     "source_labels": ["__meta_kubernetes_pod_annotation_prometheus_io_path"],
@@ -1634,6 +1634,11 @@ def _collector_config(
                             'scale_metric(1048576.0) where metric.name == "DCGM_FI_DEV_FB_USED"',
                             'scale_metric(1048576.0) where metric.name == "DCGM_FI_DEV_FB_FREE"',
                             'scale_metric(0.001) where metric.name == "DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION"',
+                            'scale_metric(1048576.0) where metric.name == "gpu_used_vram"',
+                            'scale_metric(1048576.0) where metric.name == "gpu_free_vram"',
+                            'scale_metric(0.01) where metric.name == "gpu_gfx_activity"',
+                            'scale_metric(0.01) where metric.name == "gpu_umc_activity"',
+                            'scale_metric(0.000001) where metric.name == "gpu_energy_consumed"',
                         ],
                     },
                     {
@@ -1699,6 +1704,13 @@ def _collector_config(
                             'set(metric.name, "modelplane_gpu_temperature_celsius") where metric.name == "DCGM_FI_DEV_GPU_TEMP"',
                             'set(metric.name, "modelplane_gpu_power_watts") where metric.name == "DCGM_FI_DEV_POWER_USAGE"',
                             'set(metric.name, "modelplane_energy_joules_total") where metric.name == "DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION"',
+                            'set(metric.name, "modelplane_gpu_memory_used_bytes") where metric.name == "gpu_used_vram"',
+                            'set(metric.name, "modelplane_gpu_memory_free_bytes") where metric.name == "gpu_free_vram"',
+                            'set(metric.name, "modelplane_gpu_compute_active_ratio") where metric.name == "gpu_gfx_activity"',
+                            'set(metric.name, "modelplane_gpu_memory_bandwidth_ratio") where metric.name == "gpu_umc_activity"',
+                            'set(metric.name, "modelplane_gpu_temperature_celsius") where metric.name == "gpu_junction_temperature"',
+                            'set(metric.name, "modelplane_gpu_power_watts") where metric.name == "gpu_power_usage"',
+                            'set(metric.name, "modelplane_energy_joules_total") where metric.name == "gpu_energy_consumed"',
                         ],
                     },
                 ]
@@ -4641,7 +4653,7 @@ COMPOSE_CASES = [
                         service_extensions=None,
                     ),
                     "collector": _collector(
-                        config_hash="522decbfdd3a589c",
+                        config_hash="27157e659a3a8882",
                         volumes=[{"name": "config", "configMap": {"name": "modelplane-collector"}}],
                         volume_mounts=[{"name": "config", "mountPath": "/conf"}],
                         env_from=None,
@@ -4999,7 +5011,7 @@ COMPOSE_CASES = [
                         ready=fnv1.READY_TRUE,
                     ),
                     "collector": _collector(
-                        config_hash="52b78175754428dd",
+                        config_hash="159b3bf6c7617256",
                         volumes=[
                             {"name": "config", "configMap": {"name": "modelplane-collector"}},
                             {"name": "credentials-primary", "secret": {"secretName": "telemetry-credentials"}},
@@ -5325,7 +5337,7 @@ COMPOSE_CASES = [
                         service_extensions=None,
                     ),
                     "collector": _collector(
-                        config_hash="12df8b0b19eb5fce",
+                        config_hash="c1024ab8dec03d88",
                         volumes=[{"name": "config", "configMap": {"name": "modelplane-collector"}}],
                         volume_mounts=[{"name": "config", "mountPath": "/conf"}],
                         env_from=None,
@@ -5627,7 +5639,7 @@ COMPOSE_CASES = [
                         service_extensions=None,
                     ),
                     "collector": _collector(
-                        config_hash="46ed90b25528eb92",
+                        config_hash="4cd9e55f075ccddc",
                         volumes=[{"name": "config", "configMap": {"name": "modelplane-collector"}}],
                         volume_mounts=[{"name": "config", "mountPath": "/conf"}],
                         env_from=None,
@@ -5957,7 +5969,7 @@ COMPOSE_CASES = [
                         service_extensions=None,
                     ),
                     "collector": _collector(
-                        config_hash="522decbfdd3a589c",
+                        config_hash="27157e659a3a8882",
                         volumes=[{"name": "config", "configMap": {"name": "modelplane-collector"}}],
                         volume_mounts=[{"name": "config", "mountPath": "/conf"}],
                         env_from=None,
