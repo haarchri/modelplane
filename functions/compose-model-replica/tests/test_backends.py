@@ -455,7 +455,9 @@ def _deployment(
                                     }
                                 ],
                                 "tolerations": [
-                                    {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}
+                                    {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                                    {"key": "amd.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                                    {"key": "modelplane.ai/cpu", "operator": "Exists", "effect": "NoSchedule"},
                                 ],
                             },
                         },
@@ -516,7 +518,9 @@ def _leader_worker_set(
                                         }
                                     ],
                                     "tolerations": [
-                                        {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}
+                                        {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                                        {"key": "amd.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                                        {"key": "modelplane.ai/cpu", "operator": "Exists", "effect": "NoSchedule"},
                                     ],
                                 },
                             },
@@ -535,7 +539,9 @@ def _leader_worker_set(
                                         }
                                     ],
                                     "tolerations": [
-                                        {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}
+                                        {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                                        {"key": "amd.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                                        {"key": "modelplane.ai/cpu", "operator": "Exists", "effect": "NoSchedule"},
                                     ],
                                 },
                             },
@@ -2079,7 +2085,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -2129,7 +2145,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -2511,7 +2537,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -2561,7 +2597,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -2730,7 +2776,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -2780,7 +2836,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -2949,7 +3015,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3001,7 +3077,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3142,7 +3228,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3192,7 +3288,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3349,7 +3455,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3399,7 +3515,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3578,7 +3704,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3660,7 +3796,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3850,7 +3996,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -3932,7 +4088,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -4128,7 +4294,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -4214,7 +4390,17 @@ BUILD_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -6542,7 +6728,17 @@ APPLY_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -6592,7 +6788,17 @@ APPLY_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -6838,7 +7044,17 @@ APPLY_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
@@ -6888,7 +7104,17 @@ APPLY_CASES = [
                                         "key": "nvidia.com/gpu",
                                         "operator": "Exists",
                                         "effect": "NoSchedule",
-                                    }
+                                    },
+                                    {
+                                        "key": "amd.com/gpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
+                                    {
+                                        "key": "modelplane.ai/cpu",
+                                        "operator": "Exists",
+                                        "effect": "NoSchedule",
+                                    },
                                 ],
                             },
                         },
