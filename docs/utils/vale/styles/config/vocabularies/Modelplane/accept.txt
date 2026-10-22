@@ -124,6 +124,9 @@ HBM3e
 cpuset
 device-metrics-exporter
 [Mm]icrojoules
+MI325X
+CPUs
+NUMA
 Envoy
 Traefik
 MetalLB
@@ -743,6 +746,9 @@ HBM3e
 cpuset
 device-metrics-exporter
 [Mm]icrojoules
+MI325X
+CPUs
+NUMA
 Envoy
 Traefik
 MetalLB

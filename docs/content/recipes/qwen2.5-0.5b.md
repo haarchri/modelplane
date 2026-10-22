@@ -1,7 +1,7 @@
 ---
 title: Qwen2.5-0.5B on AMD
 weight: 13
-description: A 0.5B dense chat model on a single AMD Instinct MI325X on a bring-your-own cluster.
+description: A 0.5B dense chat model on one AMD Instinct MI325X on a bring-your-own cluster.
 model: Qwen/Qwen2.5-0.5B-Instruct
 vendors: [Qwen]
 clouds: [Existing]
@@ -16,7 +16,7 @@ engineImages: [rocm/vllm:rocm7.14.1_cdna_ubuntu24.04_py3.14_pytorch_2.11_vllm_0.
 gpuNote: 1× of 8 per node
 ---
 <!-- vale write-good.Passive = NO -->
-A 0.5B dense chat model on a single AMD Instinct MI325X on a bring-your-own
+A 0.5B dense chat model on one AMD Instinct MI325X on a bring-your-own
 cluster: one `Standalone` engine, no cache, weights pulled straight from
 Hugging Face. The model is deliberately small - the point of this run is the
 AMD serving path, not the model. The class claims the GPU through DRA
@@ -25,7 +25,7 @@ when a class claims that driver, against the amdgpu kernel driver the node
 image already carries. The engine is AMD's ROCm vLLM.
 
 The manifests are the ones validated end to end on an 8x MI325X bare metal
-node (each GPU has just under 256 GiB of HBM3e), re-registered here as a
+node (each GPU has just under 256 GiB of HBM3e), registered here as a
 bring-your-own cluster - `source: Existing` is the one cloud source that
 installs the AMD stack today. Bring the cluster with the amdgpu driver on its
 GPU nodes, label the pool's nodes `modelplane.ai/pool=gpu-mi325x`, and apply

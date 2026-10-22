@@ -22,10 +22,10 @@ Face. A CPU pool is the cheapest way to exercise a Modelplane deployment end
 to end - no GPU to find, no driver to wait for - and a 0.5B model is small
 enough that CPU inference answers in sensible time.
 
-The class's provisioning block names no accelerator, which is what makes the
+The class's provisioning block omits `accelerator`, which is what makes the
 pool a CPU pool: the cluster composition builds it with a standard node image
 and the `modelplane.ai/cpu` label and taint, and the serving stack installs
-dra-driver-cpu - and no GPU machinery - because the class claims `dra.cpu`.
+`dra-driver-cpu` - and no GPU machinery - because the class claims `dra.cpu`.
 The claim pins the engine to its NUMA node's cpuset. The engine is vLLM's CPU
 build, whose image serves the same OpenAI API as the CUDA one. The same class
 without its provisioning block describes a bring-your-own CPU pool, on any
