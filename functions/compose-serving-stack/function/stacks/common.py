@@ -320,13 +320,14 @@ COMPONENTS: list[Component] = [
     # engine container to a cpuset. Pinned here because a CPU node needs
     # the same driver whatever provisioned it, so every cloud - Existing
     # included - installs the one pin. The nodeSelector keeps it to CPU
-    # pools, which every cluster composition labels modelplane.ai/cpu:
-    # the chart's default tolerations accept every NoSchedule taint, so
-    # the selector is what keeps it off GPU and system pools, not their
-    # taints. reservedCPUs holds cores 0-1 back for the OS and kubelet,
-    # so a class's capacity.cpu is the node's vCPUs less two - a fixed,
-    # documented value rather than a per-pool knob someone must keep in
-    # step with the class by hand.
+    # pools, which every cluster composition labels modelplane.ai/cpu;
+    # the tolerations are set because the chart's default is a keyless
+    # wildcard, which AKS rejects at admission and the e2e toleration
+    # audit flags - the CPU taint is the only one the selector can land
+    # the driver behind. reservedCPUs holds cores 0-1 back for the OS
+    # and kubelet, so a class's capacity.cpu is the node's vCPUs less
+    # two - a fixed, documented value rather than a per-pool knob
+    # someone must keep in step with the class by hand.
     Chart(
         key="dra-driver-cpu",
         release="mp-dra-driver-cpu",
@@ -337,6 +338,9 @@ COMPONENTS: list[Component] = [
         dra_drivers=["dra.cpu"],
         values={
             "nodeSelector": {"modelplane.ai/cpu": "true"},
+            "tolerations": [
+                {"key": "modelplane.ai/cpu", "operator": "Exists", "effect": "NoSchedule"},
+            ],
             "driverConfig": {"reservedCPUs": "0-1"},
         },
     ),
