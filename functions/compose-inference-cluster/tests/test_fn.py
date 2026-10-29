@@ -391,10 +391,11 @@ def _serving_stack(
     secrets: list[dict],
     client_cas: list[dict] | None,
     gpu: dict | None,
+    service_annotations: dict | None,
     ready: fnv1.Ready,
     dra_drivers: tuple[str, ...],
 ) -> fnv1.Resource:
-    """The composed ServingStack, its gateway accepting client_cas and its spec.gpu set to gpu unless they're None.
+    """The composed ServingStack, its gateway accepting client_cas and carrying service_annotations, and its spec.gpu set to gpu, unless they're None.
 
     dra_drivers is the drivers the cluster's classes claim, always stamped
     on the spec.
@@ -402,6 +403,8 @@ def _serving_stack(
     gateway: dict = {"hostname": "gateway-test-cluster-09532.modelplane-system.svc.cluster.local"}
     if client_cas is not None:
         gateway["clientCAs"] = client_cas
+    if service_annotations is not None:
+        gateway["serviceAnnotations"] = service_annotations
     spec: dict = {
         "cloud": cloud,
         "gateway": gateway,
@@ -666,6 +669,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -787,6 +791,7 @@ COMPOSE_CASES = [
                         ],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -1132,6 +1137,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                     "pool-observation-l4-pool": _pool_observation(pool="l4-pool"),
@@ -1280,6 +1286,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                     "pool-observation-l4-pool": _pool_observation(pool="l4-pool"),
@@ -1420,6 +1427,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                         dra_drivers=("gpu.nvidia.com",),
                     ),
@@ -1549,6 +1557,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                         dra_drivers=("gpu.nvidia.com",),
                     ),
@@ -1687,6 +1696,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                         dra_drivers=("gpu.nvidia.com",),
                     ),
@@ -1821,6 +1831,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                         dra_drivers=("gpu.nvidia.com",),
                     ),
@@ -1976,6 +1987,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                         dra_drivers=("gpu.nvidia.com",),
                     ),
@@ -2485,6 +2497,7 @@ COMPOSE_CASES = [
                         ],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-gke-by-backend": _backend_usage(cluster_kind="GKECluster"),
@@ -2679,6 +2692,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-eks-by-backend": _backend_usage(cluster_kind="EKSCluster"),
@@ -3349,6 +3363,7 @@ COMPOSE_CASES = [
                         ],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-nebius-by-backend": _backend_usage(cluster_kind="NebiusCluster"),
@@ -3682,6 +3697,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-aks-by-backend": _backend_usage(cluster_kind="AKSCluster"),
@@ -3977,6 +3993,7 @@ COMPOSE_CASES = [
                         ],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-gke-by-backend": _backend_usage(cluster_kind="GKECluster"),
@@ -4319,6 +4336,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-vultr-by-backend": _backend_usage(cluster_kind="VultrCluster"),
@@ -4460,6 +4478,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                         dra_drivers=("dra.cpu",),
                     ),
@@ -4870,6 +4889,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-civo-by-backend": _backend_usage(cluster_kind="CivoCluster"),
@@ -5058,6 +5078,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu={"pools": [{"name": "h100-pool", "disableNvLink": True}]},
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-civo-by-backend": _backend_usage(cluster_kind="CivoCluster"),
@@ -5140,7 +5161,7 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 composite=_desired_inference_cluster(
-                    gpu_pools=[
+                    schedulable_pools=[
                         {
                             "name": "l40s-pool",
                             "nodes": 4,
@@ -5174,6 +5195,7 @@ COMPOSE_CASES = [
                                 "name": "l40s-pool",
                                 "role": "GPU",
                                 "plan": "GPU-8xCPU-64GB-1xL40S",
+                                "diskSizeGb": 100,
                                 "nodeCount": 2,
                                 "maxNodeCount": 4,
                                 "gpu": {"acceleratorType": "nvidia-l40s"},
@@ -5262,7 +5284,7 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 composite=_desired_inference_cluster(
-                    gpu_pools=[
+                    schedulable_pools=[
                         {
                             "name": "l40s-pool",
                             "nodes": 4,
@@ -5296,6 +5318,7 @@ COMPOSE_CASES = [
                                 "name": "l40s-pool",
                                 "role": "GPU",
                                 "plan": "GPU-8xCPU-64GB-1xL40S",
+                                "diskSizeGb": 100,
                                 "nodeCount": 2,
                                 "maxNodeCount": 4,
                                 "gpu": {"acceleratorType": "nvidia-l40s"},
@@ -5373,6 +5396,7 @@ COMPOSE_CASES = [
                                     ],
                                 },
                                 "status": {
+                                    "clusterId": "11111111-2222-3333-4444-555555555555",
                                     "conditions": [
                                         {
                                             "type": "Ready",
@@ -5424,7 +5448,7 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 composite=_desired_inference_cluster(
-                    gpu_pools=[
+                    schedulable_pools=[
                         {
                             "name": "l40s-pool",
                             "nodes": 4,
@@ -5441,7 +5465,13 @@ COMPOSE_CASES = [
                         },
                     ],
                     cache=None,
-                    gateway=None,
+                    gateway={
+                        "serviceAnnotations": {
+                            "service.beta.kubernetes.io/upcloud-load-balancer-config": (
+                                '{"name": "11111111-2222-3333-4444-555555555555-{gateway}"}'
+                            ),
+                        },
+                    },
                 ),
                 resources={
                     "activation": _activation_policy(
@@ -5458,6 +5488,7 @@ COMPOSE_CASES = [
                                 "name": "l40s-pool",
                                 "role": "GPU",
                                 "plan": "GPU-8xCPU-64GB-1xL40S",
+                                "diskSizeGb": 100,
                                 "nodeCount": 2,
                                 "maxNodeCount": 4,
                                 "gpu": {"acceleratorType": "nvidia-l40s"},
@@ -5475,6 +5506,12 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "test-cluster-kubeconfig-abcde", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations={
+                            "service.beta.kubernetes.io/upcloud-load-balancer-config": (
+                                '{"name": "11111111-2222-3333-4444-555555555555-{gateway}"}'
+                            ),
+                        },
+                        dra_drivers=("gpu.nvidia.com",),
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                     "usage-upcloud-by-backend": _backend_usage(cluster_kind="UpCloudCluster"),
@@ -5657,6 +5694,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -5776,6 +5814,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -5881,6 +5920,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -5986,6 +6026,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -6095,6 +6136,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
@@ -6385,6 +6427,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=[{"name": "fleet-0", "certificate": "fleet-ca"}],
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                 },
@@ -6452,6 +6495,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=None,
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                 },
@@ -6525,6 +6569,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=[{"name": "fleet-0", "certificate": "fleet-ca"}],
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                 },
@@ -6595,6 +6640,7 @@ COMPOSE_CASES = [
                         secrets=[{"type": "Kubeconfig", "name": "my-kubeconfig", "key": "kubeconfig"}],
                         client_cas=[{"name": "fleet-0", "certificate": "fleet-ca"}],
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                 },
@@ -6686,6 +6732,7 @@ COMPOSE_CASES = [
                             {"name": "fleet-1", "certificate": "fleet-1-ca"},
                         ],
                         gpu=None,
+                        service_annotations=None,
                         ready=fnv1.READY_TRUE,
                     ),
                 },

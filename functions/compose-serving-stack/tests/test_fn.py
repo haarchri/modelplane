@@ -8128,6 +8128,11 @@ COMPOSED_RESOURCE_KEYS_CASES = [
                                 certificate="-----BEGIN CERTIFICATE-----\nfleet\n-----END CERTIFICATE-----\n",
                             )
                         ],
+                        serviceAnnotations={
+                            "service.beta.kubernetes.io/upcloud-load-balancer-config": (
+                                '{"name": "11111111-2222-3333-4444-555555555555-{gateway}"}'
+                            ),
+                        },
                     ),
                     gpu=None,
                 ),
@@ -8136,6 +8141,7 @@ COMPOSED_RESOURCE_KEYS_CASES = [
                     "provider-config-helm": _observed_ready(),
                     "gateway": _observed_ready(),
                     "gateway-class": _observed_ready(),
+                    "gateway-lb-proxy": _observed_ready(),
                     "gateway-ca-certificate": _observed_ready(),
                     "gateway-ca-issuer": _observed_ready(),
                     "gateway-serving-certificate": _observed_ready(),
@@ -8176,6 +8182,9 @@ COMPOSED_RESOURCE_KEYS_CASES = [
             "provider-config-helm",
             "gateway",
             "gateway-class",
+            # The per-gateway EnvoyProxy carrying UpCloud's load balancer
+            # name annotation (spec.gateway.serviceAnnotations).
+            "gateway-lb-proxy",
             "gateway-ca-certificate",
             "gateway-ca-issuer",
             "gateway-serving-certificate",
@@ -8235,6 +8244,11 @@ COMPOSED_RESOURCE_KEYS_CASES = [
                                 certificate="-----BEGIN CERTIFICATE-----\nfleet\n-----END CERTIFICATE-----\n",
                             )
                         ],
+                        serviceAnnotations={
+                            "service.beta.kubernetes.io/upcloud-load-balancer-config": (
+                                '{"name": "11111111-2222-3333-4444-555555555555-{gateway}"}'
+                            ),
+                        },
                     ),
                     gpu=None,
                 ),
@@ -8243,6 +8257,7 @@ COMPOSED_RESOURCE_KEYS_CASES = [
                     "provider-config-helm": _observed_ready(),
                     "gateway": _observed_ready(),
                     "gateway-class": _observed_ready(),
+                    "gateway-lb-proxy": _observed_ready(),
                     "gateway-ca-certificate": _observed_ready(),
                     "gateway-ca-issuer": _observed_ready(),
                     "gateway-serving-certificate": _observed_ready(),
@@ -8297,6 +8312,9 @@ COMPOSED_RESOURCE_KEYS_CASES = [
             "provider-config-helm",
             "gateway",
             "gateway-class",
+            # The per-gateway EnvoyProxy carrying UpCloud's load balancer
+            # name annotation (spec.gateway.serviceAnnotations).
+            "gateway-lb-proxy",
             "gateway-ca-certificate",
             "gateway-ca-issuer",
             "gateway-serving-certificate",
