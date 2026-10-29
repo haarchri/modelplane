@@ -534,6 +534,12 @@ spec:
                 items:
                   type: object
                   required: [name, className]
+                  x-kubernetes-validations:
+                  - rule: "self.name != 'system'"
+                    message: >-
+                      system is reserved for the system node pool every
+                      provisioned cluster injects; a pool by that name would
+                      take its place.
                   properties:
                     name:
                       type: string
