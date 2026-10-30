@@ -360,6 +360,8 @@ class Composer:
         if not self.resolve_classes() or not self.resolve_reservations():
             return
 
+        self.compose_input_usages()
+
         source = cluster.source
         if not self.check_devices_supported(source):
             return
@@ -535,6 +537,42 @@ class Composer:
             ),
         )
         self.rsp.desired.resources[_DELETION_GUARD_RESOURCE_KEY].ready = fnv1.READY_TRUE
+
+    def compose_input_usages(self) -> None:
+        """Block deletion of the InferenceClasses and CapacityReservations the
+        node pools reference.
+
+        The function fails every reconcile while one of them is missing, so
+        deleting one in use would stop this cluster reconciling until it's
+        recreated. Each ClusterUsage blocks that delete while this cluster
+        references the class or reservation. Once it doesn't, the function stops
+        composing the ClusterUsage, and replayDeletion re-issues a delete that
+        was already attempted.
+
+        The ClusterUsages give a reason rather than naming this cluster as
+        their `by`. Crossplane keeps a Usage with a `by` until the `by` is gone,
+        and a foreground delete of this cluster waits for its composed
+        ClusterUsages, so neither would ever finish.
+        """
+        name = _name(self.xr.metadata)
+        inputs = [("InferenceClass", c) for c in self.classes] + [("CapacityReservation", r) for r in self.reservations]
+        for kind, ref in inputs:
+            key = f"usage-{kind.lower()}-{ref}"
+            resource.update(
+                self.rsp.desired.resources[key],
+                clusterusagev1beta1.ClusterUsage(
+                    spec=clusterusagev1beta1.Spec(
+                        of=clusterusagev1beta1.Of(
+                            apiVersion="modelplane.ai/v1alpha1",
+                            kind=kind,
+                            resourceRef=clusterusagev1beta1.ResourceRef(name=ref),
+                        ),
+                        reason=f"InferenceCluster {name} uses this {kind}",
+                        replayDeletion=True,
+                    ),
+                ),
+            )
+            self.rsp.desired.resources[key].ready = fnv1.READY_TRUE
 
     def caches_on_cluster(self) -> list[mcv1alpha1.ModelCache]:
         """The ModelCaches staging onto this cluster.

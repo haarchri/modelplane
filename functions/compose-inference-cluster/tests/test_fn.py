@@ -468,6 +468,24 @@ def _guard_cluster_usage(*, reason: str) -> fnv1.Resource:
     )
 
 
+def _input_usage(*, kind: str, name: str) -> fnv1.Resource:
+    """The ClusterUsage blocking deletion of an InferenceClass or CapacityReservation test-cluster uses."""
+    return fnv1.Resource(
+        resource=resource.dict_to_struct(
+            {
+                "apiVersion": "protection.crossplane.io/v1beta1",
+                "kind": "ClusterUsage",
+                "spec": {
+                    "of": {"apiVersion": "modelplane.ai/v1alpha1", "kind": kind, "resourceRef": {"name": name}},
+                    "reason": f"InferenceCluster test-cluster uses this {kind}",
+                    "replayDeletion": True,
+                },
+            }
+        ),
+        ready=fnv1.READY_TRUE,
+    )
+
+
 def _namespace_object(*, team: str, name: str) -> fnv1.Resource:
     """The composed Object that mirrors team's namespace onto the cluster as the Namespace name."""
     return fnv1.Resource(
@@ -652,6 +670,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -757,6 +776,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig",
                         identity={
@@ -888,6 +908,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -986,6 +1007,7 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -1122,6 +1144,10 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "usage-capacityreservation-l4-calendar": _input_usage(
+                        kind="CapacityReservation", name="l4-calendar"
+                    ),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -1239,6 +1265,10 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "usage-capacityreservation-l4-calendar": _input_usage(
+                        kind="CapacityReservation", name="l4-calendar"
+                    ),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -1361,6 +1391,8 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "usage-capacityreservation-l4-block": _input_usage(kind="CapacityReservation", name="l4-block"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -1646,6 +1678,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -1754,6 +1787,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1902,6 +1936,8 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-cpu": _input_usage(kind="InferenceClass", name="cpu"),
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2043,6 +2079,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2172,6 +2209,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2310,6 +2348,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2444,6 +2483,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2599,6 +2639,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2729,6 +2770,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -2902,6 +2944,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -3077,6 +3120,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -3271,6 +3315,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -3449,6 +3494,8 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
+                    "usage-capacityreservation-l4-block": _input_usage(kind="CapacityReservation", name="l4-block"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -3597,6 +3644,8 @@ COMPOSE_CASES = [
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
+                    "usage-capacityreservation-l4-block": _input_usage(kind="CapacityReservation", name="l4-block"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -3758,6 +3807,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -3896,6 +3946,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-nebius": _input_usage(kind="InferenceClass", name="gpu-h100-nebius"),
                     "activation": _activation_policy(
                         activate=[
                             "filesystems.compute.nebius.m.upbound.io",
@@ -4084,6 +4135,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-nebius": _input_usage(kind="InferenceClass", name="gpu-h100-nebius"),
                     "activation": _activation_policy(
                         activate=[
                             "filesystems.compute.nebius.m.upbound.io",
@@ -4256,6 +4308,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-aks": _input_usage(kind="InferenceClass", name="gpu-h100-aks"),
                     "activation": _activation_policy(
                         activate=[
                             "kubernetesclusters.containerservice.azure.m.upbound.io",
@@ -4434,6 +4487,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-aks": _input_usage(kind="InferenceClass", name="gpu-h100-aks"),
                     "activation": _activation_policy(
                         activate=[
                             "kubernetesclusters.containerservice.azure.m.upbound.io",
@@ -4592,6 +4646,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -4736,6 +4791,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -4869,6 +4925,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-vultr": _input_usage(kind="InferenceClass", name="gpu-l40s-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -4968,6 +5025,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-vultr": _input_usage(kind="InferenceClass", name="gpu-l40s-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -5103,6 +5161,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-vultr": _input_usage(kind="InferenceClass", name="gpu-l40s-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -5245,6 +5304,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-cpu-vultr": _input_usage(kind="InferenceClass", name="cpu-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -5358,6 +5418,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-civo": _input_usage(kind="InferenceClass", name="gpu-l40s-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -5480,6 +5541,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-civo": _input_usage(kind="InferenceClass", name="gpu-l40s-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -5636,6 +5698,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-civo": _input_usage(kind="InferenceClass", name="gpu-l40s-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -5825,6 +5888,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-civo": _input_usage(kind="InferenceClass", name="gpu-h100-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -6022,6 +6086,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(
                         reason="ModelReplicas, ModelRoutes and ModelCaches use this InferenceCluster"
                     ),
@@ -6146,6 +6211,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(reason="ModelRoutes use this InferenceCluster"),
                     "namespace-team-c": _namespace_object(team="team-c", name="mp-team-c-d79d9"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
@@ -6251,6 +6317,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(reason="ModelCaches use this InferenceCluster"),
                     "namespace-team-d": _namespace_object(team="team-d", name="mp-team-d-c2383"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
@@ -6357,6 +6424,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(reason="InferenceGateways use this InferenceCluster"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
@@ -6467,6 +6535,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -6739,7 +6808,11 @@ COMPOSE_CASES = [
         ),
         want=fnv1.RunFunctionResponse(
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
-            desired=fnv1.State(),
+            desired=fnv1.State(
+                resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                },
+            ),
             results=[
                 fnv1.Result(
                     severity=fnv1.SEVERITY_FATAL,

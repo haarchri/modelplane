@@ -166,7 +166,8 @@ A `CapacityReservation` describes any GKE reservation, including a future
 reservation in calendar mode once its reservation period starts. On EKS it
 describes a Capacity Block for ML (`type: CapacityBlock`) or an On-Demand
 Capacity Reservation (`type: OnDemand`). Modelplane doesn't create, change, or
-delete the reservation itself.
+delete the reservation itself. It blocks deleting a `CapacityReservation`, or an
+`InferenceClass`, while a node pool references it.
 
 When a Capacity Block or a calendar-mode reservation ends, the cloud removes
 the nodes that consume it. A pool's reservation can't change, and neither can
