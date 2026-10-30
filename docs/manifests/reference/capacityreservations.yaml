@@ -1,0 +1,9 @@
+apiVersion: modelplane.ai/v1alpha1
+kind: CapacityReservation
+metadata:
+  name: a3-mega-calendar
+spec:
+  provider: GKE
+  gke:
+    zone: us-central1-a
+    name: a3-mega-calendar

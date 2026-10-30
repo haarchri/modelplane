@@ -147,6 +147,33 @@ the rank a gang computes until then.
 Composing a full Dynamo graph deployment, for its frontend and request routing,
 is planned.
 
+## Capacity reservations
+
+Large GPU machines are often only available through a capacity reservation. On
+GKE and EKS a node pool can consume one you've already bought. Register the
+reservation as a `CapacityReservation`, then reference it from the pool's
+`reservationRef`:
+
+{{< manifests path="concepts/capacity-reservation-gke.yaml" apply="false" >}}
+
+A pool that references a reservation only gets nodes from that reservation, and
+never falls back to on-demand capacity. Keep its `nodeCount` within the
+reserved instance count. On GKE, restrict the pool's `zones` to the
+reservation's zone. On EKS, restrict them to the reservation's Availability
+Zone.
+
+A `CapacityReservation` describes any GKE reservation, including a future
+reservation in calendar mode once its reservation period starts. On EKS it
+describes a Capacity Block for ML (`type: CapacityBlock`) or an On-Demand
+Capacity Reservation (`type: OnDemand`). Modelplane doesn't create, change, or
+delete the reservation itself.
+
+When a Capacity Block or a calendar-mode reservation ends, the cloud removes
+the nodes that consume it. A pool's reservation can't change, and neither can
+a `CapacityReservation`'s. To move to a new reservation, add a node pool that
+references it, ideally before the old reservation ends, then remove the old
+pool.
+
 ## Examples
 
 {{< tabs >}}

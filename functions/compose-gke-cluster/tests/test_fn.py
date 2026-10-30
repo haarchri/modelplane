@@ -236,8 +236,32 @@ def _nodepool_system(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
     )
 
 
-def _nodepool_gpu(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
-    """The composed NodePool for the XR's gpu-pool."""
+def _nodepool_gpu(*, cred_kind: str, cred_name: str, reservation_affinity: dict | None) -> fnv1.Resource:
+    """The composed NodePool for the XR's gpu-pool, consuming a reservation unless reservation_affinity is None."""
+    node_config: dict = {
+        "machineType": "a2-highgpu-8g",
+        "diskSizeGb": 100,
+        "imageType": "COS_CONTAINERD",
+        "oauthScopes": [
+            "https://www.googleapis.com/auth/cloud-platform",
+        ],
+        "guestAccelerator": [
+            {
+                "type": "nvidia-tesla-a100",
+                "count": 8,
+                "gpuDriverInstallationConfig": {
+                    "gpuDriverVersion": "DEFAULT",
+                },
+            },
+        ],
+        "labels": {
+            "modelplane.ai/gpu": "nvidia-tesla-a100",
+            "modelplane.ai/pool": "gpu-pool",
+            "cloud.google.com/gke-nvidia-gpu-dra-driver": "true",
+        },
+    }
+    if reservation_affinity is not None:
+        node_config["reservationAffinity"] = reservation_affinity
     return fnv1.Resource(
         resource=resource.dict_to_struct(
             {
@@ -250,28 +274,7 @@ def _nodepool_gpu(*, cred_kind: str, cred_name: str) -> fnv1.Resource:
                         "clusterSelector": {"matchControllerRef": True},
                         "initialNodeCount": 1,
                         "autoscaling": {"minNodeCount": 0, "maxNodeCount": 8},
-                        "nodeConfig": {
-                            "machineType": "a2-highgpu-8g",
-                            "diskSizeGb": 100,
-                            "imageType": "COS_CONTAINERD",
-                            "oauthScopes": [
-                                "https://www.googleapis.com/auth/cloud-platform",
-                            ],
-                            "guestAccelerator": [
-                                {
-                                    "type": "nvidia-tesla-a100",
-                                    "count": 8,
-                                    "gpuDriverInstallationConfig": {
-                                        "gpuDriverVersion": "DEFAULT",
-                                    },
-                                },
-                            ],
-                            "labels": {
-                                "modelplane.ai/gpu": "nvidia-tesla-a100",
-                                "modelplane.ai/pool": "gpu-pool",
-                                "cloud.google.com/gke-nvidia-gpu-dra-driver": "true",
-                            },
-                        },
+                        "nodeConfig": node_config,
                     },
                 },
             }
@@ -438,7 +441,153 @@ COMPOSE_CASES = [
                     "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
-                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-gpu-pool": _nodepool_gpu(
+                        cred_kind="ClusterProviderConfig", cred_name="default", reservation_affinity=None
+                    ),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="Reservation",
+        reason="A GPU pool backed by a reservation in the cluster's project consumes it as a specific reservation, named by its name alone.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="gpu-pool",
+                            role="GPU",
+                            machineType="a2-highgpu-8g",
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-tesla-a100", acceleratorCount=8),
+                            reservation=v1alpha1.Reservation(name="a100-calendar"),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-gpu-pool": _nodepool_gpu(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        reservation_affinity={
+                            "consumeReservationType": "SPECIFIC_RESERVATION",
+                            "key": "compute.googleapis.com/reservation-name",
+                            "values": ["a100-calendar"],
+                        },
+                    ),
+                    "service-account": _service_account(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "service-account-key": _service_account_key(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "provider-config-kubernetes": _provider_config(api_version="kubernetes.m.crossplane.io/v1alpha1"),
+                    "provider-config-helm": _provider_config(api_version="helm.m.crossplane.io/v1beta1"),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "gcp-provider-config": fnv1.ResourceSelector(
+                        api_version="gcp.m.upbound.io/v1beta1",
+                        kind="ClusterProviderConfig",
+                        match_name="default",
+                    ),
+                },
+            ),
+        ),
+    ),
+    Case(
+        name="SharedReservation",
+        reason="A GPU pool backed by a reservation shared from another project consumes it as a specific reservation, named by its project path.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_xr(
+                    credentials=None,
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="gpu-pool",
+                            role="GPU",
+                            machineType="a2-highgpu-8g",
+                            gpu=v1alpha1.Gpu(acceleratorType="nvidia-tesla-a100", acceleratorCount=8),
+                            reservation=v1alpha1.Reservation(name="a100-calendar", project="shared-reservations"),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "gcp-provider-config": fnv1.Resources(
+                    items=[_gcp_provider_config(kind="ClusterProviderConfig", name="default", namespace=None)],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_xr(),
+                resources={
+                    "network": _network(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                    "projectservice-filestore": _projectservice_filestore(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                    ),
+                    "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-gpu-pool": _nodepool_gpu(
+                        cred_kind="ClusterProviderConfig",
+                        cred_name="default",
+                        reservation_affinity={
+                            "consumeReservationType": "SPECIFIC_RESERVATION",
+                            "key": "compute.googleapis.com/reservation-name",
+                            "values": ["projects/shared-reservations/reservations/a100-calendar"],
+                        },
+                    ),
                     "service-account": _service_account(
                         cred_kind="ClusterProviderConfig",
                         cred_name="default",
@@ -695,7 +844,9 @@ COMPOSE_CASES = [
                     "subnet": _subnet(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "cluster": _cluster(cred_kind="ClusterProviderConfig", cred_name="default"),
                     "nodepool-system": _nodepool_system(cred_kind="ClusterProviderConfig", cred_name="default"),
-                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ClusterProviderConfig", cred_name="default"),
+                    "nodepool-gpu-pool": _nodepool_gpu(
+                        cred_kind="ClusterProviderConfig", cred_name="default", reservation_affinity=None
+                    ),
                     "service-account": _service_account(
                         cred_kind="ClusterProviderConfig",
                         cred_name="default",
@@ -798,7 +949,9 @@ COMPOSE_CASES = [
                     "subnet": _subnet(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
                     "cluster": _cluster(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
                     "nodepool-system": _nodepool_system(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
-                    "nodepool-gpu-pool": _nodepool_gpu(cred_kind="ProviderConfig", cred_name="my-gcp-account"),
+                    "nodepool-gpu-pool": _nodepool_gpu(
+                        cred_kind="ProviderConfig", cred_name="my-gcp-account", reservation_affinity=None
+                    ),
                     "service-account": _service_account(
                         cred_kind="ProviderConfig",
                         cred_name="my-gcp-account",

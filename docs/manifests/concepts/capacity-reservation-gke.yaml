@@ -1,0 +1,30 @@
+# A GKE InferenceCluster whose L4 pool consumes a Compute Engine reservation.
+# The pool is restricted to the reservation's zone.
+apiVersion: modelplane.ai/v1alpha1
+kind: CapacityReservation
+metadata:
+  name: l4-reservation
+spec:
+  provider: GKE
+  gke:
+    zone: us-central1-a
+    name: l4-reservation
+    # project: shared-reservations  # for a reservation shared from another project
+---
+apiVersion: modelplane.ai/v1alpha1
+kind: InferenceCluster
+metadata:
+  name: gke-reserved
+spec:
+  cluster:
+    source: GKE
+    gke:
+      region: us-central1
+  nodePools:
+  - name: l4-pool
+    className: gke-l4-1x-g2
+    nodeCount: 2
+    maxNodeCount: 2
+    zones: [us-central1-a]
+    reservationRef:
+      name: l4-reservation

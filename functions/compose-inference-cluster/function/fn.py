@@ -39,6 +39,7 @@ from crossplane.function import logging, request, resource, response
 from crossplane.function.proto.v1 import run_function_pb2 as fnv1
 from crossplane.function.proto.v1 import run_function_pb2_grpc as grpcv1
 from models.ai.modelplane.agent.poolobservation import v1alpha1 as pov1alpha1
+from models.ai.modelplane.capacityreservation import v1alpha1 as crv1alpha1
 from models.ai.modelplane.inferenceclass import v1alpha1 as iclv1alpha1
 from models.ai.modelplane.inferencecluster import v1alpha1
 from models.ai.modelplane.inferencegateway import v1alpha1 as igv1alpha1
@@ -81,6 +82,7 @@ CONDITION_REASON_CLUSTER_RUNNING = "ClusterRunning"
 CONDITION_REASON_PROVISIONING = "Provisioning"
 CONDITION_REASON_WAITING_FOR_CLUSTER = "WaitingForCluster"
 CONDITION_REASON_WAITING_FOR_CLASSES = "WaitingForClasses"
+CONDITION_REASON_WAITING_FOR_RESERVATIONS = "WaitingForReservations"
 CONDITION_REASON_BACKEND_HEALTHY = "BackendHealthy"
 CONDITION_REASON_INSTALLING = "Installing"
 CONDITION_REASON_INVALID_NODE_POOL = "InvalidNodePool"
@@ -325,6 +327,9 @@ class Composer:
         # Resolved InferenceClasses, keyed by class name. Populated by
         # resolve_classes().
         self.classes: dict[str, iclv1alpha1.InferenceClass] = {}
+        # Resolved CapacityReservations, keyed by reservation name. Populated by
+        # resolve_reservations().
+        self.reservations: dict[str, crv1alpha1.CapacityReservation] = {}
         # Client CA per InferenceGateway, keyed by gateway name.
         self.gateway_cas: dict[str, str] = {}
 
@@ -352,7 +357,7 @@ class Composer:
             response.warning(self.rsp, "spec.cluster is required")
             return
 
-        if not self.resolve_classes():
+        if not self.resolve_classes() or not self.resolve_reservations():
             return
 
         source = cluster.source
@@ -424,7 +429,8 @@ class Composer:
         _LABEL_CLUSTER), and the ModelCaches staging onto it, drive the deletion
         guard and the mirrored namespaces; the InferenceGateways carry the
         client CAs the cluster gateway must accept, and those running here also
-        drive the guard; and the InferenceClasses back the node pools.
+        drive the guard; and the InferenceClasses and CapacityReservations back
+        the node pools.
         """
         name = _name(self.xr.metadata)
         for kind, key in (("ModelReplica", "model-replicas"), ("ModelRoute", "model-routes")):
@@ -459,6 +465,16 @@ class Composer:
                 api_version="modelplane.ai/v1alpha1",
                 kind="InferenceClass",
                 match_name=class_name,
+            )
+        for reservation_name in sorted(
+            {p.reservationRef.name for p in (self.xr.spec.nodePools or []) if p.reservationRef}
+        ):
+            response.require_resources(
+                self.rsp,
+                name=f"reservation-{reservation_name}",
+                api_version="modelplane.ai/v1alpha1",
+                kind="CapacityReservation",
+                match_name=reservation_name,
             )
 
     def compose_deletion_guard(self) -> None:
@@ -706,6 +722,31 @@ class Composer:
 
         if missing:
             self.fail(CONDITION_REASON_WAITING_FOR_CLASSES, f"Waiting for InferenceClasses: {', '.join(missing)}")
+            return False
+
+        return True
+
+    def resolve_reservations(self) -> bool:
+        """Fetch every CapacityReservation referenced by
+        spec.nodePools[].reservationRef (required in require_inputs). Returns
+        False, having failed the reconcile, if any is missing."""
+        names = sorted({p.reservationRef.name for p in (self.xr.spec.nodePools or []) if p.reservationRef})
+
+        missing: list[str] = []
+        for name in names:
+            # Wait for Crossplane to fetch it. See resolve_classes.
+            if f"reservation-{name}" not in self.req.required_resources:
+                return False
+            d = request.get_required_resource(self.req, f"reservation-{name}")
+            if d is None:
+                missing.append(name)
+                continue
+            self.reservations[name] = crv1alpha1.CapacityReservation.model_validate(d)
+
+        if missing:
+            self.fail(
+                CONDITION_REASON_WAITING_FOR_RESERVATIONS, f"Waiting for CapacityReservations: {', '.join(missing)}"
+            )
             return False
 
         return True
@@ -1282,6 +1323,26 @@ class Composer:
             # empty list out of the GKECluster spec.
             if pool.zones:
                 node_pool.zones = [gkev1alpha1.Zone(z) for z in pool.zones]
+            # Only set reservation when the pool has one, so an on-demand pool's
+            # GKECluster spec stays free of reservation: null.
+            if pool.reservationRef:
+                r = self.reservations[pool.reservationRef.name]
+                if r.spec.provider != CLUSTER_SOURCE_GKE or not r.spec.gke:
+                    msg = f"CapacityReservation {pool.reservationRef.name} is for {r.spec.provider}, not GKE"
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                # A specific reservation only has capacity in its own zone, so a
+                # pool that may create nodes in any other zone can't use it.
+                if pool.zones != [r.spec.gke.zone]:
+                    msg = (
+                        f"Node pool {pool.name} must set zones to [{r.spec.gke.zone}] to use "
+                        f"CapacityReservation {pool.reservationRef.name}"
+                    )
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                node_pool.reservation = gkev1alpha1.Reservation(name=r.spec.gke.name)
+                if r.spec.gke.project:
+                    node_pool.reservation.project = r.spec.gke.project
             gke_node_pools.append(node_pool)
 
         gke_spec = gkev1alpha1.Spec(
@@ -1344,12 +1405,25 @@ class Composer:
             # serializes with exclude_unset).
             if pool.zones:
                 node_pool.zones = [eksv1alpha1.Zone(z) for z in pool.zones]
-            # Only set capacityBlock when the pool has one. resource.update
-            # serializes with exclude_unset, so leaving it unset keeps it out
-            # of the EKSCluster spec rather than emitting capacityBlock: null.
-            if pool.capacityBlock:
-                node_pool.capacityBlock = eksv1alpha1.CapacityBlock(
-                    capacityReservationId=pool.capacityBlock.capacityReservationId,
+            # Only set capacityReservation when the pool has one. resource.update
+            # serializes with exclude_unset, so leaving it unset keeps it out of
+            # the EKSCluster spec rather than emitting capacityReservation: null.
+            if pool.reservationRef:
+                r = self.reservations[pool.reservationRef.name]
+                if r.spec.provider != CLUSTER_SOURCE_EKS or not r.spec.eks:
+                    msg = f"CapacityReservation {pool.reservationRef.name} is for {r.spec.provider}, not EKS"
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                if r.spec.eks.region != eks.region:
+                    msg = (
+                        f"CapacityReservation {pool.reservationRef.name} is in region {r.spec.eks.region}, "
+                        f"but the cluster is in {eks.region}"
+                    )
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                node_pool.capacityReservation = eksv1alpha1.CapacityReservation(
+                    type=r.spec.eks.type,
+                    id=r.spec.eks.id,
                 )
             # Likewise only set fabric when the pool opts into one, so an
             # on-demand pool's EKSCluster spec stays free of fabric: None.

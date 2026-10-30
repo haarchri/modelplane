@@ -21,6 +21,10 @@ spec:
       pathPrefix: _output/functions/compose-aks-cluster
   - source: Tarball
     tarball:
+      name: compose-capacity-reservation
+      pathPrefix: _output/functions/compose-capacity-reservation
+  - source: Tarball
+    tarball:
       name: compose-civo-cluster
       pathPrefix: _output/functions/compose-civo-cluster
   - source: Tarball

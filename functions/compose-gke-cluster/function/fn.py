@@ -85,6 +85,14 @@ _CPU_TAINT_EFFECT = "NO_SCHEDULE"
 # minNodeCount 0.
 _LABEL_GPU_DRA_DRIVER = "cloud.google.com/gke-nvidia-gpu-dra-driver"
 
+# A node pool backed by a reservation consumes it as a specific reservation, so
+# GKE creates the pool's nodes only from that reservation and never from
+# on-demand capacity. GKE identifies the reservation by this key, with the
+# reservation's name, or projects/<project>/reservations/<name> for a
+# reservation shared from another project.
+_RESERVATION_AFFINITY_SPECIFIC = "SPECIFIC_RESERVATION"
+_RESERVATION_AFFINITY_KEY = "compute.googleapis.com/reservation-name"
+
 # Secret types written to XR status. compose-inference-cluster reads
 # these to wire the kubeconfig and SA key into ProviderConfigs. The SA key's
 # type is the provider identity it authenticates as (see _IDENTITY_TYPE_GCP).
@@ -413,6 +421,16 @@ class Composer:
                 node_config.labels = {
                     _LABEL_POOL: pool.name,
                 }
+
+            if pool.reservation:
+                name = pool.reservation.name
+                if pool.reservation.project:
+                    name = f"projects/{pool.reservation.project}/reservations/{name}"
+                node_config.reservationAffinity = nodepoolv1beta1.ReservationAffinity(
+                    consumeReservationType=_RESERVATION_AFFINITY_SPECIFIC,
+                    key=_RESERVATION_AFFINITY_KEY,
+                    values=[name],
+                )
 
             np = nodepoolv1beta1.NodePool(
                 spec=nodepoolv1beta1.Spec(
