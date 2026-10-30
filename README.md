@@ -100,8 +100,8 @@ everything in between composed for you:
 - **Developers** create a `ModelDeployment` (a model's engines, replica count,
   and an optional `ModelCache`) and a `ModelService` (one model name, at the
   gateway, across the replicas it selects).
-- **Modelplane composes** a `ModelReplica` per cluster and a `ModelEndpoint` per
-  replica.
+- **Modelplane composes** a `ModelReplica` for each replica it schedules onto a
+  cluster, and a `ModelEndpoint` per replica.
 
 Once those resources exist, Modelplane keeps the fleet matching them across five
 concerns: **provisioning** clusters and their node pools, **scheduling** each

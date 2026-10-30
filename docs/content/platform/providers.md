@@ -12,7 +12,8 @@ A provider can show up here in three ways:
 
 {{< hint "note" >}}
 - **Provisioning supported.** Modelplane creates and manages the whole cluster
-  from an `InferenceCluster`, selected through `provisioning.provider`. GKE, EKS, AKS, Nebius mk8s, Vultr VKE, Civo K3s work this way today.
+  from an `InferenceCluster`, selected through `cluster.source`. GKE, EKS, AKS,
+  Nebius mk8s, Vultr VKE, Civo K3s work this way today.
 - **Bring your own supported.** Register a cluster you already run with
   `source: Existing`. This works on any provider whose Kubernetes meets
   Modelplane's requirements (Dynamic Resource Allocation and a recent Kubernetes
@@ -63,14 +64,14 @@ register it with `source: Existing`. Provisioning it for you is on the roadmap
 too. Modelplane can drive NVIDIA Base Command Manager or other bare-metal
 Kubernetes provisioners through Crossplane, the same pattern it uses in the
 cloud.
-<!-- vale ai-tells.ShipOveruse = NO -->
-
 {{< /hint >}}
+
+<!-- vale ai-tells.ShipOveruse = NO -->
 Native provisioning expands as more Crossplane providers ship; until then, the
 bring-your-own path runs Modelplane on any conformant Kubernetes cluster today.
+<!-- vale ai-tells.ShipOveruse = YES -->
 
 {{< hint "tip" >}}
-<!-- vale ai-tells.ShipOveruse = = YES -->
 
 Don't see your cloud or neocloud, or want to be added?
 [Open an issue](https://github.com/modelplaneai/modelplane/issues/new) and we'll

@@ -85,7 +85,7 @@ Some examples of the available metrics:
 | `modelplane_frontend_requests_active` | Requests open at the gateway, per `ModelService` |
 | `modelplane_request_queue_seconds` | How long a request waited before the engine started |
 | `modelplane_requests_waiting` | Queue depth per engine |
-| `modelplane_kv_cache_utilization_ratio` | KV-cache occupancy, averaged over replicas |
+| `modelplane_kv_cache_utilization_ratio` | KV-cache occupancy, per replica |
 | `modelplane_engine_tokens_total` | Prompt and generated tokens of the requests the engine finished, by `direction`: `input` or `output` |
 | `modelplane_engine_requests_total` | Requests the engine finished |
 | `modelplane_gpu_memory_used_bytes` | Framebuffer memory in use, per GPU |
