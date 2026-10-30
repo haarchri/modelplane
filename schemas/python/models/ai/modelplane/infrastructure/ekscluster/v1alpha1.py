@@ -68,12 +68,14 @@ class Networking(BaseModel):
     """
 
 
-class CapacityBlock(BaseModel):
-    capacityReservationId: constr(
-        pattern=r'^cr-[0-9a-f]+$', min_length=4, max_length=64
-    )
+class CapacityReservation(BaseModel):
+    id: constr(pattern=r'^cr-[0-9a-f]+$', min_length=4, max_length=64)
     """
-    The ID of the Capacity Reservation backing the Capacity Block (e.g. cr-0123456789abcdef0). Purchasing a Capacity Block yields this ID.
+    The ID of the Capacity Reservation (e.g. cr-0123456789abcdef0).
+    """
+    type: Literal['CapacityBlock', 'OnDemand']
+    """
+    The kind of Capacity Reservation. CapacityBlock is a Capacity Block for ML. OnDemand is an On-Demand Capacity Reservation.
     """
 
 
@@ -89,9 +91,9 @@ class Zone(RootModel[constr(min_length=1, max_length=63)]):
 
 
 class NodePool(BaseModel):
-    capacityBlock: CapacityBlock | None = None
+    capacityReservation: CapacityReservation | None = None
     """
-    Capacity Block reservation backing this node group. Large GPU instances (e.g. p5en.48xlarge) are rarely available on demand; AWS allocates them via Capacity Blocks for ML. Set this to back the node group with a Capacity Block you have purchased. When set, Modelplane composes a launch template targeting the reservation and creates the node group with CAPACITY_BLOCK capacity type. The node group's zones must match the reservation's Availability Zone, and nodeCount must not exceed the reserved instance count. Omit for on-demand node groups.
+    Capacity Reservation backing this node group. When set, Modelplane composes a launch template that launches instances only into the reservation. A Capacity Block node group also uses the CAPACITY_BLOCK capacity type. The node group's zones must match the reservation's Availability Zone, and nodeCount must not exceed the reserved instance count. Omit for on-demand node groups.
     """
     diskSizeGb: conint(ge=10, le=65536) | None = 100
     """

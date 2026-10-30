@@ -74,6 +74,17 @@ class Gpu(BaseModel):
     """
 
 
+class Reservation(BaseModel):
+    name: constr(min_length=1, max_length=63)
+    """
+    Name of the reservation.
+    """
+    project: constr(min_length=1, max_length=30) | None = None
+    """
+    Project that owns the reservation, for a reservation shared from another project. Omit for a reservation in the cluster's project.
+    """
+
+
 class Zone(RootModel[constr(min_length=1, max_length=63)]):
     root: constr(min_length=1, max_length=63)
 
@@ -106,6 +117,10 @@ class NodePool(BaseModel):
     nodeCount: conint(ge=0, le=1000) | None = 1
     """
     Initial number of nodes.
+    """
+    reservation: Reservation | None = None
+    """
+    Compute Engine reservation backing this node pool. The pool consumes only this reservation, as a specific reservation, so its size is limited to the reservation's capacity. The pool's zones must be the reservation's zone. Omit for on-demand pools.
     """
     role: Literal['System', 'GPU', 'CPU']
     """
