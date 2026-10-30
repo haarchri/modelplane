@@ -914,6 +914,110 @@ COMPOSE_CASES = [
         ),
     ),
     ComposeCase(
+        name="GKEClassWrongProvider",
+        reason="A GKE node pool whose InferenceClass has no GKE provisioning block is rejected with a fatal result.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a"],
+                        ),
+                    ],
+                ),
+                resources={
+                    "activation": _observed_activation_policy(
+                        activated=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ]
+                    ),
+                },
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "EKS",
+                                "eks": {
+                                    "instanceType": "g6.xlarge",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "activation": _activation_policy(
+                        activate=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ],
+                        ready=fnv1.READY_TRUE,
+                    ),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                },
+            ),
+            results=[
+                fnv1.Result(severity=fnv1.SEVERITY_FATAL, message="InferenceClass gpu-l4 has no GKE provisioning block")
+            ],
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="InvalidNodePool",
+                    message="InferenceClass gpu-l4 has no GKE provisioning block",
+                ),
+            ],
+        ),
+    ),
+    ComposeCase(
         name="GKECredentials",
         reason="A GKE cluster's credentials pass through to the GKECluster's spec.",
         req=fnv1.RunFunctionRequest(
@@ -5686,17 +5790,98 @@ COMPOSE_CASES = [
             ],
         ),
     ),
-    # resolve_classes() returns False whenever a referenced InferenceClass isn't
-    # observed yet - a routine transient. The guard runs first, so a
-    # referencing replica still blocks deletion. This is the case that
-    # regresses if the guard is gated behind class resolution or cluster source.
-    #
-    # Only the guard and namespace are composed, both ready, so the function
-    # marks the XR not ready itself. Otherwise it would read ready while it
-    # waits for its classes.
+    # A missing InferenceClass fails the reconcile, so Crossplane applies none
+    # of its desired state and an existing cluster XR isn't deleted for being
+    # missing from it.
     ComposeCase(
         name="ClassUnresolved",
-        reason="With its class unresolved and a replica on the cluster, the function composes the guard and the replica's namespace before returning early.",
+        reason="With its class unresolved, the function fails the reconcile, reporting the missing class on ClusterReady.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(
+                        source="Existing",
+                        existing=v1alpha1.Existing(secretRef=v1alpha1.SecretRef(name="my-kubeconfig")),
+                    ),
+                    node_pools=[
+                        v1alpha1.NodePool(name="l4-pool", className="gpu-l4", nodeCount=2, maxNodeCount=4),
+                    ],
+                ),
+            ),
+            required_resources={
+                "model-replicas": fnv1.Resources(
+                    items=[
+                        fnv1.Resource(
+                            resource=resource.dict_to_struct(
+                                {
+                                    "apiVersion": "modelplane.ai/v1alpha1",
+                                    "kind": "ModelReplica",
+                                    "metadata": {
+                                        "name": "deploy-test-cluster-0",
+                                        "namespace": "team-a",
+                                        "labels": {"modelplane.ai/cluster": "test-cluster"},
+                                    },
+                                }
+                            )
+                        )
+                    ]
+                ),
+                # Crossplane fetched the class, and it doesn't exist.
+                "class-gpu-l4": fnv1.Resources(),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "usage-replicas": _guard_cluster_usage(reason="ModelReplicas use this InferenceCluster"),
+                    "namespace-team-a": _namespace_object(team="team-a", name="mp-team-a-bd964"),
+                },
+            ),
+            results=[fnv1.Result(severity=fnv1.SEVERITY_FATAL, message="Waiting for InferenceClasses: gpu-l4")],
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                },
+            ),
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="WaitingForClasses",
+                    message="Waiting for InferenceClasses: gpu-l4",
+                ),
+            ],
+        ),
+    ),
+    # The hostname gate, which is what keeps a cluster off the schedule until
+    # traffic to it is mutually authenticated in both directions. These cases
+    # observe an existing cluster's ServingStack ready, with whatever it and the
+    # fleet's InferenceGateways have published so far. The gateway name is
+    # Modelplane's own, so nothing configures it. An InferenceGateway running on
+    # test-cluster also composes the deletion guard.
+    #
+    # This cluster's CA lets an InferenceGateway tell it reached the right
+    # cluster, and an InferenceGateway CA makes the cluster gateway demand a
+    # client certificate.
+    ComposeCase(
+        name="ClassNotYetFetched",
+        reason="Before Crossplane has fetched its class, the function asks for it and waits, without failing the reconcile.",
         req=fnv1.RunFunctionRequest(
             observed=fnv1.State(
                 composite=_inference_cluster(
@@ -5732,13 +5917,11 @@ COMPOSE_CASES = [
         want=fnv1.RunFunctionResponse(
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
-                composite=fnv1.Resource(ready=fnv1.READY_FALSE),
                 resources={
                     "usage-replicas": _guard_cluster_usage(reason="ModelReplicas use this InferenceCluster"),
                     "namespace-team-a": _namespace_object(team="team-a", name="mp-team-a-bd964"),
                 },
             ),
-            results=[fnv1.Result(severity=fnv1.SEVERITY_NORMAL, message="Waiting for InferenceClasses: gpu-l4")],
             context=structpb.Struct(),
             requirements=fnv1.Requirements(
                 resources={
@@ -5759,14 +5942,6 @@ COMPOSE_CASES = [
                     ),
                 },
             ),
-            conditions=[
-                fnv1.Condition(
-                    type="ClusterReady",
-                    status=fnv1.STATUS_CONDITION_FALSE,
-                    reason="WaitingForClasses",
-                    message="Waiting for InferenceClasses: gpu-l4",
-                ),
-            ],
         ),
     ),
     # The devices gate fires on a cluster that is already running - a shared
