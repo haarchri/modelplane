@@ -138,9 +138,9 @@ Multi-node deployments stage weights through a `ModelCache`.
 
 {{< qa "What about disaggregated prefill/decode?" >}}
 Set `serving.mode: PrefillDecode` and define separate prefill and decode engines.
-Both run on the same cluster, hand off the KV cache over a fast fabric, and
-Modelplane configures the cluster-edge routing that pairs each request. The
-KV-transfer flags live in your engine config.
+Both run on the same cluster and hand off the KV cache over a fast fabric. You
+write the routing that pairs each request: an endpoint picker, and a sidecar in
+the decode pod. The KV-transfer flags live in your engine config.
 {{< /qa >}}
 
 {{< qa "How does scaling work?" >}}

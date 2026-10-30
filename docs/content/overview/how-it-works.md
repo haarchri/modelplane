@@ -149,9 +149,9 @@ model.
 
 Disaggregated serving splits prefill and decode into separate engines
 (`serving.mode: PrefillDecode`) that run on the same cluster and hand off the KV
-cache between them. Modelplane wires up the cluster-edge routing that pairs each
-request's prefill and decode; you set the KV-transfer flags on the engines. Both
-are described in full in the [model deployment docs]({{< ref "/models/model-deployment" >}}).
+cache between them. You write the routing that pairs each request's prefill and
+decode, as well as the engines' KV-transfer flags.
+[Configure Routing]({{< ref "/models/routing" >}}) describes what to write.
 
 ## Next steps
 
