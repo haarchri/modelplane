@@ -165,13 +165,14 @@ _AMI_TYPE_GPU = "AL2023_x86_64_NVIDIA"
 # since EKS won't accept the node group's diskSize when a template is set.
 _ROOT_DEVICE_NAME = "/dev/xvda"
 
-# Capacity Block backing. Large GPU instances (e.g. p5en.48xlarge) are
-# rarely available on demand; AWS allocates them via Capacity Blocks for
-# ML. A node group backed by a Capacity Block uses the CAPACITY_BLOCK
-# capacity type and a launch template that targets the reservation: it
-# sets the instance market type to "capacity-block" and points at the
-# reservation ID. EKS requires the instance type to come from the launch
-# template (not the node group's instanceTypes) for capacity-block groups.
+# Capacity Reservation backing. A node group backed by a Capacity Reservation
+# uses a launch template that launches instances only into the reservation. A
+# Capacity Block for ML additionally needs the "capacity-block" instance market
+# type in the template and the CAPACITY_BLOCK capacity type on the node group;
+# an On-Demand Capacity Reservation uses the default on-demand market. EKS
+# requires the instance type to come from the launch template (not the node
+# group's instanceTypes) whenever a template is set.
+_RESERVATION_TYPE_CAPACITY_BLOCK = "CapacityBlock"
 _CAPACITY_TYPE_CAPACITY_BLOCK = "CAPACITY_BLOCK"
 _MARKET_TYPE_CAPACITY_BLOCK = "capacity-block"
 _CR_PREFERENCE_ONLY = "capacity-reservations-only"
@@ -850,15 +851,15 @@ class Composer:
         """Compose the system and user-declared GPU node groups."""
         self._compose_system_node_group()
         for pool in self.xr.spec.nodePools:
-            capacity_block = pool.capacityBlock
+            reservation = pool.capacityReservation
             efa = pool.fabric == _FABRIC_EFA
-            # A launch template is needed to carry the capacity-block market
-            # options, the EFA interfaces, or both. EKS takes the instance type
-            # from the launch template whenever one is set, so the node group
-            # must not also set instanceTypes in that case.
-            uses_launch_template = bool(capacity_block) or efa
+            # A launch template is needed to carry the capacity reservation, the
+            # EFA interfaces, or both. EKS takes the instance type from the
+            # launch template whenever one is set, so the node group must not
+            # also set instanceTypes in that case.
+            uses_launch_template = bool(reservation) or efa
             if uses_launch_template:
-                self._compose_launch_template(pool, capacity_block, efa=efa)
+                self._compose_launch_template(pool, reservation, efa=efa)
             if efa:
                 self._compose_efa_security_group()
 
@@ -884,15 +885,15 @@ class Composer:
             if uses_launch_template:
                 # EKS takes the instance type from the launch template, so the
                 # node group must not also set instanceTypes. The template
-                # carries the instance type, the disk size, any capacity-block
-                # market options, and any EFA interfaces. EKS rejects a node
+                # carries the instance type, the disk size, any capacity
+                # reservation, and any EFA interfaces. EKS rejects a node
                 # group that sets diskSize alongside a launch template, so the
                 # disk size lives only in the template in this case.
                 fp.launchTemplate = ngv1beta1.LaunchTemplate(
                     name=self._launch_template_name(pool),
                     version="$Latest",
                 )
-                if capacity_block:
+                if reservation and reservation.type == _RESERVATION_TYPE_CAPACITY_BLOCK:
                     fp.capacityType = _CAPACITY_TYPE_CAPACITY_BLOCK
             else:
                 fp.instanceTypes = [pool.instanceType]
@@ -950,7 +951,7 @@ class Composer:
             )
 
     def _launch_template_name(self, pool: v1alpha1.NodePool) -> str:
-        """Derive the EC2 launch template name for a Capacity Block pool.
+        """Derive the EC2 launch template name for a pool that needs one.
 
         The EKS NodeGroup references the launch template by name, so it
         must be stable and match the launchTemplate.forProvider.name set
@@ -959,15 +960,15 @@ class Composer:
         return resource.child_name(_name(self.xr.metadata), f"lt-{pool.name}")
 
     def _compose_launch_template(
-        self, pool: v1alpha1.NodePool, capacity_block: v1alpha1.CapacityBlock | None, *, efa: bool
+        self, pool: v1alpha1.NodePool, reservation: v1alpha1.CapacityReservation | None, *, efa: bool
     ) -> None:
         """Compose an EC2 launch template for a node group.
 
         EKS launches the node group's instances from this template. It carries
-        the instance type and, depending on the pool, the capacity-block market
-        options (so instances come from the reservation) and/or EFA network
+        the instance type and, depending on the pool, the capacity reservation
+        (so instances come only from the reservation) and/or EFA network
         interfaces (so nodes get GPUDirect RDMA). The node group references it
-        by name; for a capacity-block pool it also sets capacityType.
+        by name; for a Capacity Block pool it also sets capacityType.
 
         The template must not set subnets - EKS rejects a launch template with
         subnet configuration for managed node groups and takes the subnets from
@@ -987,15 +988,16 @@ class Composer:
             ],
         )
 
-        if capacity_block:
-            fp.instanceMarketOptions = ltv1beta1.InstanceMarketOptions(
-                marketType=_MARKET_TYPE_CAPACITY_BLOCK,
-            )
+        if reservation:
             fp.capacityReservationSpecification = ltv1beta1.CapacityReservationSpecification(
                 capacityReservationPreference=_CR_PREFERENCE_ONLY,
                 capacityReservationTarget=ltv1beta1.CapacityReservationTarget(
-                    capacityReservationId=capacity_block.capacityReservationId,
+                    capacityReservationId=reservation.id,
                 ),
+            )
+        if reservation and reservation.type == _RESERVATION_TYPE_CAPACITY_BLOCK:
+            fp.instanceMarketOptions = ltv1beta1.InstanceMarketOptions(
+                marketType=_MARKET_TYPE_CAPACITY_BLOCK,
             )
 
         if efa:
@@ -1756,7 +1758,9 @@ class Composer:
             managed_resources.append(f"efs-mount-target-{i}")
         managed_resources += [f"nodegroup-{p.name}" for p in self.xr.spec.nodePools]
         managed_resources += [
-            f"launch-template-{p.name}" for p in self.xr.spec.nodePools if p.capacityBlock or p.fabric == _FABRIC_EFA
+            f"launch-template-{p.name}"
+            for p in self.xr.spec.nodePools
+            if p.capacityReservation or p.fabric == _FABRIC_EFA
         ]
         if any(p.fabric == _FABRIC_EFA for p in self.xr.spec.nodePools):
             managed_resources += [

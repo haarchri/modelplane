@@ -197,6 +197,30 @@ spec:
                         type: string
                         minLength: 1
                         maxLength: 63
+                    reservation:
+                      type: object
+                      description: >-
+                        Compute Engine reservation backing this node pool. The
+                        pool consumes only this reservation, as a specific
+                        reservation, so its size is limited to the
+                        reservation's capacity. The pool's zones must be the
+                        reservation's zone. Omit for on-demand pools.
+                      required:
+                      - name
+                      properties:
+                        name:
+                          type: string
+                          description: Name of the reservation.
+                          minLength: 1
+                          maxLength: 63
+                        project:
+                          type: string
+                          description: >-
+                            Project that owns the reservation, for a
+                            reservation shared from another project. Omit for
+                            a reservation in the cluster's project.
+                          minLength: 1
+                          maxLength: 30
             type: object
           status:
             description: GKEClusterStatus defines the observed state of GKECluster.

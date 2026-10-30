@@ -28,6 +28,7 @@ groups:
 # Link each kind back to its concept doc in the Documentation tab (by content
 # path). Kinds without an entry (machine-generated / infra) just omit the link.
 concepts:
+  CapacityReservation: /platform/inference-cluster
   InferenceGateway: /platform/inference-gateway
   InferenceClass: /platform/inference-class
   InferenceCluster: /platform/inference-cluster

@@ -39,6 +39,7 @@ from crossplane.function import logging, request, resource, response
 from crossplane.function.proto.v1 import run_function_pb2 as fnv1
 from crossplane.function.proto.v1 import run_function_pb2_grpc as grpcv1
 from models.ai.modelplane.agent.poolobservation import v1alpha1 as pov1alpha1
+from models.ai.modelplane.capacityreservation import v1alpha1 as crv1alpha1
 from models.ai.modelplane.inferenceclass import v1alpha1 as iclv1alpha1
 from models.ai.modelplane.inferencecluster import v1alpha1
 from models.ai.modelplane.inferencegateway import v1alpha1 as igv1alpha1
@@ -81,6 +82,7 @@ CONDITION_REASON_CLUSTER_RUNNING = "ClusterRunning"
 CONDITION_REASON_PROVISIONING = "Provisioning"
 CONDITION_REASON_WAITING_FOR_CLUSTER = "WaitingForCluster"
 CONDITION_REASON_WAITING_FOR_CLASSES = "WaitingForClasses"
+CONDITION_REASON_WAITING_FOR_RESERVATIONS = "WaitingForReservations"
 CONDITION_REASON_BACKEND_HEALTHY = "BackendHealthy"
 CONDITION_REASON_INSTALLING = "Installing"
 CONDITION_REASON_INVALID_NODE_POOL = "InvalidNodePool"
@@ -325,6 +327,9 @@ class Composer:
         # Resolved InferenceClasses, keyed by class name. Populated by
         # resolve_classes().
         self.classes: dict[str, iclv1alpha1.InferenceClass] = {}
+        # Resolved CapacityReservations, keyed by reservation name. Populated by
+        # resolve_reservations().
+        self.reservations: dict[str, crv1alpha1.CapacityReservation] = {}
         # Client CA per InferenceGateway, keyed by gateway name.
         self.gateway_cas: dict[str, str] = {}
 
@@ -339,10 +344,10 @@ class Composer:
         self.require_inputs()
 
         # The deletion guard, namespaces, and gateway CAs all run before any
-        # early return: none depends on the cluster's source or whether its
-        # classes resolve. Gating the guard behind those would drop its
-        # ClusterUsage on a reconcile where classes are transiently unresolved
-        # and let the cluster be deleted while something still uses it.
+        # early return: none depends on the cluster's source. Gating the guard
+        # behind it would drop its ClusterUsage on a reconcile that returns
+        # early without failing, and let the cluster be deleted while something
+        # still uses it.
         self.compose_deletion_guard()
         self.compose_namespaces()
         self.resolve_gateway_cas()
@@ -352,8 +357,10 @@ class Composer:
             response.warning(self.rsp, "spec.cluster is required")
             return
 
-        if not self.resolve_classes():
+        if not self.resolve_classes() or not self.resolve_reservations():
             return
+
+        self.compose_input_usages()
 
         source = cluster.source
         if not self.check_devices_supported(source):
@@ -424,7 +431,8 @@ class Composer:
         _LABEL_CLUSTER), and the ModelCaches staging onto it, drive the deletion
         guard and the mirrored namespaces; the InferenceGateways carry the
         client CAs the cluster gateway must accept, and those running here also
-        drive the guard; and the InferenceClasses back the node pools.
+        drive the guard; and the InferenceClasses and CapacityReservations back
+        the node pools.
         """
         name = _name(self.xr.metadata)
         for kind, key in (("ModelReplica", "model-replicas"), ("ModelRoute", "model-routes")):
@@ -459,6 +467,16 @@ class Composer:
                 api_version="modelplane.ai/v1alpha1",
                 kind="InferenceClass",
                 match_name=class_name,
+            )
+        for reservation_name in sorted(
+            {p.reservationRef.name for p in (self.xr.spec.nodePools or []) if p.reservationRef}
+        ):
+            response.require_resources(
+                self.rsp,
+                name=f"reservation-{reservation_name}",
+                api_version="modelplane.ai/v1alpha1",
+                kind="CapacityReservation",
+                match_name=reservation_name,
             )
 
     def compose_deletion_guard(self) -> None:
@@ -519,6 +537,42 @@ class Composer:
             ),
         )
         self.rsp.desired.resources[_DELETION_GUARD_RESOURCE_KEY].ready = fnv1.READY_TRUE
+
+    def compose_input_usages(self) -> None:
+        """Block deletion of the InferenceClasses and CapacityReservations the
+        node pools reference.
+
+        The function fails every reconcile while one of them is missing, so
+        deleting one in use would stop this cluster reconciling until it's
+        recreated. Each ClusterUsage blocks that delete while this cluster
+        references the class or reservation. Once it doesn't, the function stops
+        composing the ClusterUsage, and replayDeletion re-issues a delete that
+        was already attempted.
+
+        The ClusterUsages give a reason rather than naming this cluster as
+        their `by`. Crossplane keeps a Usage with a `by` until the `by` is gone,
+        and a foreground delete of this cluster waits for its composed
+        ClusterUsages, so neither would ever finish.
+        """
+        name = _name(self.xr.metadata)
+        inputs = [("InferenceClass", c) for c in self.classes] + [("CapacityReservation", r) for r in self.reservations]
+        for kind, ref in inputs:
+            key = f"usage-{kind.lower()}-{ref}"
+            resource.update(
+                self.rsp.desired.resources[key],
+                clusterusagev1beta1.ClusterUsage(
+                    spec=clusterusagev1beta1.Spec(
+                        of=clusterusagev1beta1.Of(
+                            apiVersion="modelplane.ai/v1alpha1",
+                            kind=kind,
+                            resourceRef=clusterusagev1beta1.ResourceRef(name=ref),
+                        ),
+                        reason=f"InferenceCluster {name} uses this {kind}",
+                        replayDeletion=True,
+                    ),
+                ),
+            )
+            self.rsp.desired.resources[key].ready = fnv1.READY_TRUE
 
     def caches_on_cluster(self) -> list[mcv1alpha1.ModelCache]:
         """The ModelCaches staging onto this cluster.
@@ -687,12 +741,17 @@ class Composer:
 
     def resolve_classes(self) -> bool:
         """Declare and fetch every InferenceClass referenced by
-        spec.nodePools[].className (required in require_inputs). Returns False if
-        any is missing, in which case the function gates and waits."""
+        spec.nodePools[].className (required in require_inputs). Returns False,
+        having failed the reconcile, if any is missing."""
         class_names = sorted({p.className for p in (self.xr.spec.nodePools or [])})
 
         missing: list[str] = []
         for name in class_names:
+            # Crossplane only fetches a required resource after the function
+            # asks for it, and won't fetch at all if the result is fatal. An
+            # absent key means Crossplane hasn't fetched it yet, so wait for it.
+            if f"class-{name}" not in self.req.required_resources:
+                return False
             d = request.get_required_resource(self.req, f"class-{name}")
             if d is None:
                 missing.append(name)
@@ -700,19 +759,32 @@ class Composer:
             self.classes[name] = iclv1alpha1.InferenceClass.model_validate(d)
 
         if missing:
-            response.set_conditions(
-                self.rsp,
-                resource.Condition(
-                    typ=CONDITION_TYPE_CLUSTER_READY,
-                    status="False",
-                    reason=CONDITION_REASON_WAITING_FOR_CLASSES,
-                    message=f"Waiting for InferenceClasses: {', '.join(missing)}",
-                ),
+            self.fail(CONDITION_REASON_WAITING_FOR_CLASSES, f"Waiting for InferenceClasses: {', '.join(missing)}")
+            return False
+
+        return True
+
+    def resolve_reservations(self) -> bool:
+        """Fetch every CapacityReservation referenced by
+        spec.nodePools[].reservationRef (required in require_inputs). Returns
+        False, having failed the reconcile, if any is missing."""
+        names = sorted({p.reservationRef.name for p in (self.xr.spec.nodePools or []) if p.reservationRef})
+
+        missing: list[str] = []
+        for name in names:
+            # Wait for Crossplane to fetch it. See resolve_classes.
+            if f"reservation-{name}" not in self.req.required_resources:
+                return False
+            d = request.get_required_resource(self.req, f"reservation-{name}")
+            if d is None:
+                missing.append(name)
+                continue
+            self.reservations[name] = crv1alpha1.CapacityReservation.model_validate(d)
+
+        if missing:
+            self.fail(
+                CONDITION_REASON_WAITING_FOR_RESERVATIONS, f"Waiting for CapacityReservations: {', '.join(missing)}"
             )
-            response.normal(self.rsp, f"Waiting for InferenceClasses: {', '.join(missing)}")
-            # Only the guard and namespaces, both marked ready, are composed
-            # while waiting, so the XR would otherwise be ready.
-            self.rsp.desired.composite.ready = fnv1.READY_FALSE
             return False
 
         return True
@@ -760,24 +832,28 @@ class Composer:
         if not offending:
             return True
         msg = f"{'; '.join(offending)}; {source} clusters support {', '.join(sorted(supported))}"
-        response.set_conditions(
-            self.rsp,
-            resource.Condition(
-                typ=CONDITION_TYPE_CLUSTER_READY,
-                status="False",
-                reason=CONDITION_REASON_UNSUPPORTED_DEVICES,
-                message=msg,
-            ),
-        )
         # A fatal result, not a bare return: everything after this gate
         # composes the cluster, so returning an empty desired state would
         # have Crossplane garbage-collect a running cluster - the cloud
         # cluster XR, ServingStack and Usages - the moment a shared class
-        # starts claiming an unsupported driver. Crossplane stops before
-        # applying desired state or collecting anything on a fatal result,
-        # and still applies the condition above.
-        response.fatal(self.rsp, msg)
+        # starts claiming an unsupported driver.
+        self.fail(CONDITION_REASON_UNSUPPORTED_DEVICES, msg)
         return False
+
+    def fail(self, reason: str, msg: str) -> None:
+        """Stop composing the cluster, reporting why on its ClusterReady condition.
+
+        The result is fatal, so Crossplane applies none of this reconcile's
+        desired state. Its caller returns before composing the cluster XR, and
+        Crossplane would otherwise delete an existing cluster XR that's missing
+        from desired state, for example because someone deleted an
+        InferenceClass or edited a node pool.
+        """
+        response.set_conditions(
+            self.rsp,
+            resource.Condition(typ=CONDITION_TYPE_CLUSTER_READY, status="False", reason=reason, message=msg),
+        )
+        response.fatal(self.rsp, msg)
 
     def compose_gke(self, gke: v1alpha1.Gke | None) -> None:
         """Compose an InferenceCluster backed by a Modelplane-provisioned
@@ -790,7 +866,8 @@ class Composer:
         self.compose_activation(_ACTIVATE_GCP)
         if self._activation_ready(_ACTIVATE_GCP) or "gke-cluster" in self.req.observed.resources:
             self.rsp.desired.resources["activation"].ready = fnv1.READY_TRUE
-            self.compose_gke_cluster(gke)
+            if not self.compose_gke_cluster(gke):
+                return
 
         gke_ready = resource.get_condition(self.req.observed.resources.get("gke-cluster"), "Ready").status == "True"
         kubeconfig_secret = self.observed_gke_secret(_SECRET_TYPE_KUBECONFIG)
@@ -837,7 +914,8 @@ class Composer:
         self.compose_activation(_ACTIVATE_AWS)
         if self._activation_ready(_ACTIVATE_AWS) or "eks-cluster" in self.req.observed.resources:
             self.rsp.desired.resources["activation"].ready = fnv1.READY_TRUE
-            self.compose_eks_cluster(eks)
+            if not self.compose_eks_cluster(eks):
+                return
 
         eks_ready = resource.get_condition(self.req.observed.resources.get("eks-cluster"), "Ready").status == "True"
         kubeconfig = self.observed_eks_secret(_SECRET_TYPE_KUBECONFIG)
@@ -876,7 +954,8 @@ class Composer:
         self.compose_activation(_ACTIVATE_AZURE)
         if self._activation_ready(_ACTIVATE_AZURE) or "aks-cluster" in self.req.observed.resources:
             self.rsp.desired.resources["activation"].ready = fnv1.READY_TRUE
-            self.compose_aks_cluster(aks)
+            if not self.compose_aks_cluster(aks):
+                return
 
         aks_ready = resource.get_condition(self.req.observed.resources.get("aks-cluster"), "Ready").status == "True"
         kubeconfig = self.observed_aks_secret(_SECRET_TYPE_KUBECONFIG)
@@ -917,7 +996,8 @@ class Composer:
         self.compose_activation(_ACTIVATE_NEBIUS)
         if self._activation_ready(_ACTIVATE_NEBIUS) or "nebius-cluster" in self.req.observed.resources:
             self.rsp.desired.resources["activation"].ready = fnv1.READY_TRUE
-            self.compose_nebius_cluster(nebius)
+            if not self.compose_nebius_cluster(nebius):
+                return
 
         nebius_ready = (
             resource.get_condition(self.req.observed.resources.get("nebius-cluster"), "Ready").status == "True"
@@ -964,7 +1044,8 @@ class Composer:
         self.compose_activation(_ACTIVATE_VULTR)
         if self._activation_ready(_ACTIVATE_VULTR) or "vultr-cluster" in self.req.observed.resources:
             self.rsp.desired.resources["activation"].ready = fnv1.READY_TRUE
-            self.compose_vultr_cluster(vultr)
+            if not self.compose_vultr_cluster(vultr):
+                return
 
         vultr_ready = resource.get_condition(self.req.observed.resources.get("vultr-cluster"), "Ready").status == "True"
         kubeconfig = self.observed_vultr_secret(_SECRET_TYPE_KUBECONFIG)
@@ -1003,7 +1084,8 @@ class Composer:
         self.compose_activation(_ACTIVATE_CIVO)
         if self._activation_ready(_ACTIVATE_CIVO) or "civo-cluster" in self.req.observed.resources:
             self.rsp.desired.resources["activation"].ready = fnv1.READY_TRUE
-            self.compose_civo_cluster(civo)
+            if not self.compose_civo_cluster(civo):
+                return
 
         civo_ready = resource.get_condition(self.req.observed.resources.get("civo-cluster"), "Ready").status == "True"
         kubeconfig = self.observed_civo_secret(_SECRET_TYPE_KUBECONFIG)
@@ -1237,13 +1319,15 @@ class Composer:
             ),
         )
 
-    def compose_gke_cluster(self, gke: v1alpha1.Gke) -> None:
+    def compose_gke_cluster(self, gke: v1alpha1.Gke) -> bool:
         """Compose a GKECluster XR.
 
         Combines the cluster-level config (region) with the GPU pools derived
         from the user's node pools + referenced classes. The project is derived
         by compose-gke-cluster from the referenced ProviderConfig. The system
         pool is injected by compose-gke-cluster.
+
+        Returns False, having failed the reconcile, if a node pool is invalid.
         """
         gke_node_pools: list[gkev1alpha1.NodePool] = []
 
@@ -1251,17 +1335,8 @@ class Composer:
             cls = self.classes.get(pool.className)
             if not cls or not cls.spec.provisioning or not cls.spec.provisioning.gke:
                 msg = f"InferenceClass {pool.className} has no GKE provisioning block"
-                response.set_conditions(
-                    self.rsp,
-                    resource.Condition(
-                        typ=CONDITION_TYPE_CLUSTER_READY,
-                        status="False",
-                        reason=CONDITION_REASON_INVALID_NODE_POOL,
-                        message=msg,
-                    ),
-                )
-                response.warning(self.rsp, msg)
-                return
+                self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                return False
             prov = cls.spec.provisioning.gke
             # A class with no accelerator describes a CPU pool: a standard
             # node image, no GPU attachment, and the modelplane.ai/cpu
@@ -1286,6 +1361,26 @@ class Composer:
             # empty list out of the GKECluster spec.
             if pool.zones:
                 node_pool.zones = [gkev1alpha1.Zone(z) for z in pool.zones]
+            # Only set reservation when the pool has one, so an on-demand pool's
+            # GKECluster spec stays free of reservation: null.
+            if pool.reservationRef:
+                r = self.reservations[pool.reservationRef.name]
+                if r.spec.provider != CLUSTER_SOURCE_GKE or not r.spec.gke:
+                    msg = f"CapacityReservation {pool.reservationRef.name} is for {r.spec.provider}, not GKE"
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                # A specific reservation only has capacity in its own zone, so a
+                # pool that may create nodes in any other zone can't use it.
+                if pool.zones != [r.spec.gke.zone]:
+                    msg = (
+                        f"Node pool {pool.name} must set zones to [{r.spec.gke.zone}] to use "
+                        f"CapacityReservation {pool.reservationRef.name}"
+                    )
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                node_pool.reservation = gkev1alpha1.Reservation(name=r.spec.gke.name)
+                if r.spec.gke.project:
+                    node_pool.reservation.project = r.spec.gke.project
             gke_node_pools.append(node_pool)
 
         gke_spec = gkev1alpha1.Spec(
@@ -1308,13 +1403,16 @@ class Composer:
                 spec=gke_spec,
             ),
         )
+        return True
 
-    def compose_eks_cluster(self, eks: v1alpha1.Eks) -> None:
+    def compose_eks_cluster(self, eks: v1alpha1.Eks) -> bool:
         """Compose an EKSCluster XR.
 
         Combines the cluster-level config (region) with GPU node pools
         derived from the user's node pools + referenced classes. The
         system pool is injected by compose-eks-cluster.
+
+        Returns False, having failed the reconcile, if a node pool is invalid.
         """
         eks_node_pools: list[eksv1alpha1.NodePool] = []
 
@@ -1322,17 +1420,8 @@ class Composer:
             cls = self.classes.get(pool.className)
             if not cls or not cls.spec.provisioning or not cls.spec.provisioning.eks:
                 msg = f"InferenceClass {pool.className} has no EKS provisioning block"
-                response.set_conditions(
-                    self.rsp,
-                    resource.Condition(
-                        typ=CONDITION_TYPE_CLUSTER_READY,
-                        status="False",
-                        reason=CONDITION_REASON_INVALID_NODE_POOL,
-                        message=msg,
-                    ),
-                )
-                response.warning(self.rsp, msg)
-                return
+                self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                return False
             prov = cls.spec.provisioning.eks
             # A class with no accelerator describes a CPU pool (see the GKE
             # builder above).
@@ -1354,12 +1443,25 @@ class Composer:
             # serializes with exclude_unset).
             if pool.zones:
                 node_pool.zones = [eksv1alpha1.Zone(z) for z in pool.zones]
-            # Only set capacityBlock when the pool has one. resource.update
-            # serializes with exclude_unset, so leaving it unset keeps it out
-            # of the EKSCluster spec rather than emitting capacityBlock: null.
-            if pool.capacityBlock:
-                node_pool.capacityBlock = eksv1alpha1.CapacityBlock(
-                    capacityReservationId=pool.capacityBlock.capacityReservationId,
+            # Only set capacityReservation when the pool has one. resource.update
+            # serializes with exclude_unset, so leaving it unset keeps it out of
+            # the EKSCluster spec rather than emitting capacityReservation: null.
+            if pool.reservationRef:
+                r = self.reservations[pool.reservationRef.name]
+                if r.spec.provider != CLUSTER_SOURCE_EKS or not r.spec.eks:
+                    msg = f"CapacityReservation {pool.reservationRef.name} is for {r.spec.provider}, not EKS"
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                if r.spec.eks.region != eks.region:
+                    msg = (
+                        f"CapacityReservation {pool.reservationRef.name} is in region {r.spec.eks.region}, "
+                        f"but the cluster is in {eks.region}"
+                    )
+                    self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                    return False
+                node_pool.capacityReservation = eksv1alpha1.CapacityReservation(
+                    type=r.spec.eks.type,
+                    id=r.spec.eks.id,
                 )
             # Likewise only set fabric when the pool opts into one, so an
             # on-demand pool's EKSCluster spec stays free of fabric: None.
@@ -1387,13 +1489,16 @@ class Composer:
                 spec=eks_spec,
             ),
         )
+        return True
 
-    def compose_aks_cluster(self, aks: v1alpha1.Aks) -> None:
+    def compose_aks_cluster(self, aks: v1alpha1.Aks) -> bool:
         """Compose an AKSCluster XR.
 
         Combines the cluster-level config (location) with GPU node pools
         derived from the user's node pools + referenced classes. The
         system pool is injected by compose-aks-cluster.
+
+        Returns False, having failed the reconcile, if a node pool is invalid.
         """
         aks_node_pools: list[aksv1alpha1.NodePool] = []
 
@@ -1401,17 +1506,8 @@ class Composer:
             cls = self.classes.get(pool.className)
             if not cls or not cls.spec.provisioning or not cls.spec.provisioning.aks:
                 msg = f"InferenceClass {pool.className} has no AKS provisioning block"
-                response.set_conditions(
-                    self.rsp,
-                    resource.Condition(
-                        typ=CONDITION_TYPE_CLUSTER_READY,
-                        status="False",
-                        reason=CONDITION_REASON_INVALID_NODE_POOL,
-                        message=msg,
-                    ),
-                )
-                response.warning(self.rsp, msg)
-                return
+                self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                return False
             prov = cls.spec.provisioning.aks
             # A class with no accelerator describes a CPU pool (see the GKE
             # builder above).
@@ -1461,13 +1557,16 @@ class Composer:
                 spec=aks_spec,
             ),
         )
+        return True
 
-    def compose_nebius_cluster(self, nebius: v1alpha1.Nebius) -> None:
+    def compose_nebius_cluster(self, nebius: v1alpha1.Nebius) -> bool:
         """Compose a NebiusCluster XR.
 
         Combines the cluster-level config (project, credentials) with GPU
         node pools derived from the user's node pools + referenced classes.
         The system pool is injected by compose-nebius-cluster.
+
+        Returns False, having failed the reconcile, if a node pool is invalid.
         """
         nebius_node_pools: list[nebiusv1alpha1.NodePool] = []
 
@@ -1475,17 +1574,8 @@ class Composer:
             cls = self.classes.get(pool.className)
             if not cls or not cls.spec.provisioning or not cls.spec.provisioning.nebius:
                 msg = f"InferenceClass {pool.className} has no Nebius provisioning block"
-                response.set_conditions(
-                    self.rsp,
-                    resource.Condition(
-                        typ=CONDITION_TYPE_CLUSTER_READY,
-                        status="False",
-                        reason=CONDITION_REASON_INVALID_NODE_POOL,
-                        message=msg,
-                    ),
-                )
-                response.warning(self.rsp, msg)
-                return
+                self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                return False
             prov = cls.spec.provisioning.nebius
             # A class with no accelerator describes a CPU pool (see the GKE
             # builder above). driversPreset rides the gpu block: a CPU
@@ -1542,6 +1632,7 @@ class Composer:
                 spec=spec,
             ),
         )
+        return True
 
     def compose_nebius_usage(self) -> None:
         """Block NebiusCluster deletion until the backend is deleted."""
@@ -1623,12 +1714,14 @@ class Composer:
             return None
         return next((s for s in nebius_secrets if s.type == secret_type), None)
 
-    def compose_vultr_cluster(self, vultr: v1alpha1.Vultr) -> None:
+    def compose_vultr_cluster(self, vultr: v1alpha1.Vultr) -> bool:
         """Compose a VultrCluster XR.
 
         Combines the cluster-level config (region) with GPU node pools
         derived from the user's node pools + referenced classes. The
         system pool is injected by compose-vultr-cluster.
+
+        Returns False, having failed the reconcile, if a node pool is invalid.
         """
         vultr_node_pools: list[vultrv1alpha1.NodePool] = []
 
@@ -1636,17 +1729,8 @@ class Composer:
             cls = self.classes.get(pool.className)
             if not cls or not cls.spec.provisioning or not cls.spec.provisioning.vultr:
                 msg = f"InferenceClass {pool.className} has no Vultr provisioning block"
-                response.set_conditions(
-                    self.rsp,
-                    resource.Condition(
-                        typ=CONDITION_TYPE_CLUSTER_READY,
-                        status="False",
-                        reason=CONDITION_REASON_INVALID_NODE_POOL,
-                        message=msg,
-                    ),
-                )
-                response.warning(self.rsp, msg)
-                return
+                self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                return False
             prov = cls.spec.provisioning.vultr
             # A class with no accelerator describes a CPU pool (see the GKE
             # builder above).
@@ -1691,6 +1775,7 @@ class Composer:
                 spec=vultr_spec,
             ),
         )
+        return True
 
     def compose_vultr_usage(self) -> None:
         """Block VultrCluster deletion until the backend is deleted."""
@@ -1773,12 +1858,14 @@ class Composer:
                 pools.append(pool.name)
         return pools
 
-    def compose_civo_cluster(self, civo: v1alpha1.Civo) -> None:
+    def compose_civo_cluster(self, civo: v1alpha1.Civo) -> bool:
         """Compose a CivoCluster XR.
 
         Combines the cluster-level config (region) with GPU node pools
         derived from the user's node pools + referenced classes. The
         system pool is injected by compose-civo-cluster.
+
+        Returns False, having failed the reconcile, if a node pool is invalid.
         """
         civo_node_pools: list[civov1alpha1.NodePool] = []
 
@@ -1786,17 +1873,8 @@ class Composer:
             cls = self.classes.get(pool.className)
             if not cls or not cls.spec.provisioning or not cls.spec.provisioning.civo:
                 msg = f"InferenceClass {pool.className} has no Civo provisioning block"
-                response.set_conditions(
-                    self.rsp,
-                    resource.Condition(
-                        typ=CONDITION_TYPE_CLUSTER_READY,
-                        status="False",
-                        reason=CONDITION_REASON_INVALID_NODE_POOL,
-                        message=msg,
-                    ),
-                )
-                response.warning(self.rsp, msg)
-                return
+                self.fail(CONDITION_REASON_INVALID_NODE_POOL, msg)
+                return False
             prov = cls.spec.provisioning.civo
             # A class with no accelerator describes a CPU pool (see the GKE
             # builder above).
@@ -1844,6 +1922,7 @@ class Composer:
                 spec=civo_spec,
             ),
         )
+        return True
 
     def compose_civo_usage(self) -> None:
         """Block CivoCluster deletion until the backend is deleted."""

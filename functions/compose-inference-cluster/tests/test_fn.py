@@ -129,6 +129,20 @@ def _cpu_inference_class(*, name: str, cpus: str, provisioning: dict) -> fnv1.Re
     )
 
 
+def _capacity_reservation(*, name: str, spec: dict) -> fnv1.Resource:
+    """A CapacityReservation with spec, as its reservation requirement returns it."""
+    return fnv1.Resource(
+        resource=resource.dict_to_struct(
+            {
+                "apiVersion": "modelplane.ai/v1alpha1",
+                "kind": "CapacityReservation",
+                "metadata": {"name": name},
+                "spec": spec,
+            }
+        )
+    )
+
+
 def _inference_gateway(*, name: str, cluster: str, status: dict | None) -> fnv1.Resource:
     """An InferenceGateway on cluster, as the gateways requirement returns it, with status unless it's None."""
     gateway: dict = {
@@ -198,24 +212,26 @@ def _activation_policy(*, activate: list[str], ready: fnv1.Ready) -> fnv1.Resour
     )
 
 
-def _gke_cluster(*, credentials: dict | None, ready: fnv1.Ready) -> fnv1.Resource:
-    """The composed GKECluster with l4-pool, using credentials unless they're None."""
+def _gke_cluster(*, credentials: dict | None, reservation: dict | None, ready: fnv1.Ready) -> fnv1.Resource:
+    """The composed GKECluster with l4-pool, using credentials and backing l4-pool with reservation unless they're
+    None."""
+    pool: dict = {
+        "name": "l4-pool",
+        "role": "GPU",
+        "machineType": "g2-standard-48",
+        "nodeCount": 2,
+        "minNodeCount": None,
+        "maxNodeCount": 4,
+        "diskSizeGb": 100,
+        "gpu": {"acceleratorType": "nvidia-l4", "acceleratorCount": 1},
+        "zones": ["us-central1-a"],
+    }
+    if reservation is not None:
+        pool["reservation"] = reservation
     spec: dict = {
         "region": "us-central1",
         "kubernetesVersion": "1.35",
-        "nodePools": [
-            {
-                "name": "l4-pool",
-                "role": "GPU",
-                "machineType": "g2-standard-48",
-                "nodeCount": 2,
-                "minNodeCount": None,
-                "maxNodeCount": 4,
-                "diskSizeGb": 100,
-                "gpu": {"acceleratorType": "nvidia-l4", "acceleratorCount": 1},
-                "zones": ["us-central1-a"],
-            },
-        ],
+        "nodePools": [pool],
     }
     if credentials is not None:
         spec["credentials"] = credentials
@@ -233,9 +249,10 @@ def _gke_cluster(*, credentials: dict | None, ready: fnv1.Ready) -> fnv1.Resourc
 
 
 def _eks_cluster(
-    *, zones: list[str], capacity_block: dict | None, fabric: str | None, ready: fnv1.Ready
+    *, zones: list[str], capacity_reservation: dict | None, fabric: str | None, ready: fnv1.Ready
 ) -> fnv1.Resource:
-    """The composed EKSCluster with l4-pool in zones, setting its capacityBlock and fabric unless they're None."""
+    """The composed EKSCluster with l4-pool in zones, setting its capacityReservation and fabric unless they're
+    None."""
     pool: dict = {
         "name": "l4-pool",
         "role": "GPU",
@@ -247,8 +264,8 @@ def _eks_cluster(
         "gpu": {"acceleratorType": "nvidia-l4"},
         "zones": zones,
     }
-    if capacity_block is not None:
-        pool["capacityBlock"] = capacity_block
+    if capacity_reservation is not None:
+        pool["capacityReservation"] = capacity_reservation
     if fabric is not None:
         pool["fabric"] = fabric
     return fnv1.Resource(
@@ -451,6 +468,24 @@ def _guard_cluster_usage(*, reason: str) -> fnv1.Resource:
     )
 
 
+def _input_usage(*, kind: str, name: str) -> fnv1.Resource:
+    """The ClusterUsage blocking deletion of an InferenceClass or CapacityReservation test-cluster uses."""
+    return fnv1.Resource(
+        resource=resource.dict_to_struct(
+            {
+                "apiVersion": "protection.crossplane.io/v1beta1",
+                "kind": "ClusterUsage",
+                "spec": {
+                    "of": {"apiVersion": "modelplane.ai/v1alpha1", "kind": kind, "resourceRef": {"name": name}},
+                    "reason": f"InferenceCluster test-cluster uses this {kind}",
+                    "replayDeletion": True,
+                },
+            }
+        ),
+        ready=fnv1.READY_TRUE,
+    )
+
+
 def _namespace_object(*, team: str, name: str) -> fnv1.Resource:
     """The composed Object that mirrors team's namespace onto the cluster as the Namespace name."""
     return fnv1.Resource(
@@ -635,6 +670,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -740,6 +776,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig",
                         identity={
@@ -871,6 +908,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -884,7 +922,7 @@ COMPOSE_CASES = [
                         ],
                         ready=fnv1.READY_TRUE,
                     ),
-                    "gke-cluster": _gke_cluster(credentials=None, ready=fnv1.READY_UNSPECIFIED),
+                    "gke-cluster": _gke_cluster(credentials=None, reservation=None, ready=fnv1.READY_UNSPECIFIED),
                 },
             ),
             context=structpb.Struct(),
@@ -911,6 +949,651 @@ COMPOSE_CASES = [
                 fnv1.Condition(type="ClusterReady", status=fnv1.STATUS_CONDITION_FALSE, reason="Provisioning"),
                 fnv1.Condition(type="BackendReady", status=fnv1.STATUS_CONDITION_FALSE, reason="WaitingForCluster"),
             ],
+        ),
+    ),
+    ComposeCase(
+        name="GKEClassWrongProvider",
+        reason="A GKE node pool whose InferenceClass has no GKE provisioning block is rejected with a fatal result.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a"],
+                        ),
+                    ],
+                ),
+                resources={
+                    "activation": _observed_activation_policy(
+                        activated=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ]
+                    ),
+                },
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "EKS",
+                                "eks": {
+                                    "instanceType": "g6.xlarge",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "activation": _activation_policy(
+                        activate=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ],
+                        ready=fnv1.READY_TRUE,
+                    ),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                },
+            ),
+            results=[
+                fnv1.Result(severity=fnv1.SEVERITY_FATAL, message="InferenceClass gpu-l4 has no GKE provisioning block")
+            ],
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="InvalidNodePool",
+                    message="InferenceClass gpu-l4 has no GKE provisioning block",
+                ),
+            ],
+        ),
+    ),
+    ComposeCase(
+        name="GKEReservation",
+        reason="A node pool referencing a GKE CapacityReservation passes the reservation's name through to the GKECluster pool.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a"],
+                            reservationRef=v1alpha1.ReservationRef(name="l4-calendar"),
+                        ),
+                    ],
+                ),
+                resources={
+                    "activation": _observed_activation_policy(
+                        activated=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ]
+                    ),
+                },
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "GKE",
+                                "gke": {
+                                    "machineType": "g2-standard-48",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+                "reservation-l4-calendar": fnv1.Resources(
+                    items=[
+                        _capacity_reservation(
+                            name="l4-calendar",
+                            spec={
+                                "provider": "GKE",
+                                "gke": {"zone": "us-central1-a", "name": "l4-calendar"},
+                            },
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                composite=_desired_inference_cluster(
+                    schedulable_pools=[
+                        {
+                            "name": "l4-pool",
+                            "nodes": 4,
+                            "devices": [
+                                {
+                                    "name": "gpu",
+                                    "claim": "DRA",
+                                    "driver": "gpu.nvidia.com",
+                                    "deviceClassName": "gpu.nvidia.com",
+                                    "count": 1,
+                                    "capacity": {"memory": {"value": "24Gi"}},
+                                },
+                            ],
+                        },
+                    ],
+                    cache=None,
+                    gateway=None,
+                ),
+                resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "usage-capacityreservation-l4-calendar": _input_usage(
+                        kind="CapacityReservation", name="l4-calendar"
+                    ),
+                    "activation": _activation_policy(
+                        activate=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ],
+                        ready=fnv1.READY_TRUE,
+                    ),
+                    "gke-cluster": _gke_cluster(
+                        credentials=None,
+                        reservation={"name": "l4-calendar"},
+                        ready=fnv1.READY_UNSPECIFIED,
+                    ),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                    "reservation-l4-calendar": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-calendar"
+                    ),
+                },
+            ),
+            conditions=[
+                fnv1.Condition(type="ClusterReady", status=fnv1.STATUS_CONDITION_FALSE, reason="Provisioning"),
+                fnv1.Condition(type="BackendReady", status=fnv1.STATUS_CONDITION_FALSE, reason="WaitingForCluster"),
+            ],
+        ),
+    ),
+    # An invalid node pool fails the reconcile, so Crossplane applies none of its
+    # desired state, and an existing GKECluster isn't deleted for being missing
+    # from it. Crossplane still sets the conditions.
+    ComposeCase(
+        name="GKEReservationZoneMismatch",
+        reason="A node pool referencing a GKE CapacityReservation in a zone it isn't restricted to is rejected with a fatal result.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a", "us-central1-b"],
+                            reservationRef=v1alpha1.ReservationRef(name="l4-calendar"),
+                        ),
+                    ],
+                ),
+                resources={
+                    "activation": _observed_activation_policy(
+                        activated=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ]
+                    ),
+                },
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "GKE",
+                                "gke": {
+                                    "machineType": "g2-standard-48",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+                "reservation-l4-calendar": fnv1.Resources(
+                    items=[
+                        _capacity_reservation(
+                            name="l4-calendar",
+                            spec={"provider": "GKE", "gke": {"zone": "us-central1-a", "name": "l4-calendar"}},
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "usage-capacityreservation-l4-calendar": _input_usage(
+                        kind="CapacityReservation", name="l4-calendar"
+                    ),
+                    "activation": _activation_policy(
+                        activate=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ],
+                        ready=fnv1.READY_TRUE,
+                    ),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                    "reservation-l4-calendar": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-calendar"
+                    ),
+                },
+            ),
+            results=[
+                fnv1.Result(
+                    severity=fnv1.SEVERITY_FATAL,
+                    message="Node pool l4-pool must set zones to [us-central1-a] to use CapacityReservation l4-calendar",
+                ),
+            ],
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="InvalidNodePool",
+                    message="Node pool l4-pool must set zones to [us-central1-a] to use CapacityReservation l4-calendar",
+                ),
+            ],
+        ),
+    ),
+    ComposeCase(
+        name="GKEReservationWrongProvider",
+        reason="A GKE node pool referencing an EKS CapacityReservation is rejected with a fatal result.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a"],
+                            reservationRef=v1alpha1.ReservationRef(name="l4-block"),
+                        ),
+                    ],
+                ),
+                resources={
+                    "activation": _observed_activation_policy(
+                        activated=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ]
+                    ),
+                },
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "GKE",
+                                "gke": {
+                                    "machineType": "g2-standard-48",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+                "reservation-l4-block": fnv1.Resources(
+                    items=[
+                        _capacity_reservation(
+                            name="l4-block",
+                            spec={
+                                "provider": "EKS",
+                                "eks": {"region": "us-west-2", "type": "CapacityBlock", "id": "cr-0123456789abcdef0"},
+                            },
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                    "usage-capacityreservation-l4-block": _input_usage(kind="CapacityReservation", name="l4-block"),
+                    "activation": _activation_policy(
+                        activate=[
+                            "projectiammembers.cloudplatform.gcp.m.upbound.io",
+                            "projectservices.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccounts.cloudplatform.gcp.m.upbound.io",
+                            "serviceaccountkeys.cloudplatform.gcp.m.upbound.io",
+                            "networks.compute.gcp.m.upbound.io",
+                            "subnetworks.compute.gcp.m.upbound.io",
+                            "clusters.container.gcp.m.upbound.io",
+                            "nodepools.container.gcp.m.upbound.io",
+                        ],
+                        ready=fnv1.READY_TRUE,
+                    ),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                    "reservation-l4-block": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-block"
+                    ),
+                },
+            ),
+            results=[
+                fnv1.Result(
+                    severity=fnv1.SEVERITY_FATAL,
+                    message="CapacityReservation l4-block is for EKS, not GKE",
+                ),
+            ],
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="InvalidNodePool",
+                    message="CapacityReservation l4-block is for EKS, not GKE",
+                ),
+            ],
+        ),
+    ),
+    ComposeCase(
+        name="GKEReservationMissing",
+        reason="A node pool referencing a CapacityReservation that doesn't exist fails the reconcile until the reservation exists.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a"],
+                            reservationRef=v1alpha1.ReservationRef(name="l4-calendar"),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "GKE",
+                                "gke": {
+                                    "machineType": "g2-standard-48",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+                "reservation-l4-calendar": fnv1.Resources(),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                    "reservation-l4-calendar": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-calendar"
+                    ),
+                },
+            ),
+            results=[
+                fnv1.Result(
+                    severity=fnv1.SEVERITY_FATAL,
+                    message="Waiting for CapacityReservations: l4-calendar",
+                ),
+            ],
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="WaitingForReservations",
+                    message="Waiting for CapacityReservations: l4-calendar",
+                ),
+            ],
+        ),
+    ),
+    ComposeCase(
+        name="ReservationNotYetFetched",
+        reason="Before Crossplane has fetched its CapacityReservation, the function asks for it and waits, without failing the reconcile.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="GKE", gke=v1alpha1.Gke(region="us-central1")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-central1-a"],
+                            reservationRef=v1alpha1.ReservationRef(name="l4-calendar"),
+                        ),
+                    ],
+                ),
+            ),
+            required_resources={
+                "class-gpu-l4": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "GKE",
+                                "gke": {
+                                    "machineType": "g2-standard-48",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                    "reservation-l4-calendar": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-calendar"
+                    ),
+                },
+            ),
         ),
     ),
     ComposeCase(
@@ -995,6 +1678,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -1009,7 +1693,9 @@ COMPOSE_CASES = [
                         ready=fnv1.READY_TRUE,
                     ),
                     "gke-cluster": _gke_cluster(
-                        credentials={"type": "ProviderConfig", "name": "my-gcp-account"}, ready=fnv1.READY_UNSPECIFIED
+                        credentials={"type": "ProviderConfig", "name": "my-gcp-account"},
+                        reservation=None,
+                        ready=fnv1.READY_UNSPECIFIED,
                     ),
                 },
             ),
@@ -1101,6 +1787,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1249,6 +1936,8 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-cpu": _input_usage(kind="InferenceClass", name="cpu"),
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1390,6 +2079,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1519,6 +2209,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1657,6 +2348,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1791,6 +2483,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -1946,6 +2639,7 @@ COMPOSE_CASES = [
                     gateway={"address": "34.55.100.10"},
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4x4": _input_usage(kind="InferenceClass", name="gpu-l4x4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -2076,6 +2770,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -2105,7 +2800,7 @@ COMPOSE_CASES = [
                     ),
                     "eks-cluster": _eks_cluster(
                         zones=["us-west-2a", "us-west-2b"],
-                        capacity_block=None,
+                        capacity_reservation=None,
                         fabric=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
@@ -2249,6 +2944,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -2278,7 +2974,7 @@ COMPOSE_CASES = [
                     ),
                     "eks-cluster": _eks_cluster(
                         zones=["us-west-2a", "us-west-2b"],
-                        capacity_block=None,
+                        capacity_reservation=None,
                         fabric=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
@@ -2424,6 +3120,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -2437,7 +3134,7 @@ COMPOSE_CASES = [
                         ],
                         ready=fnv1.READY_TRUE,
                     ),
-                    "gke-cluster": _gke_cluster(credentials=None, ready=fnv1.READY_TRUE),
+                    "gke-cluster": _gke_cluster(credentials=None, reservation=None, ready=fnv1.READY_TRUE),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="test-cluster-kubeconfig-abcde",
                         identity={
@@ -2618,6 +3315,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -2646,7 +3344,10 @@ COMPOSE_CASES = [
                         ready=fnv1.READY_TRUE,
                     ),
                     "eks-cluster": _eks_cluster(
-                        zones=["us-west-2a", "us-west-2b"], capacity_block=None, fabric=None, ready=fnv1.READY_TRUE
+                        zones=["us-west-2a", "us-west-2b"],
+                        capacity_reservation=None,
+                        fabric=None,
+                        ready=fnv1.READY_TRUE,
                     ),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="test-cluster-kubeconfig-abcde", identity=None
@@ -2689,11 +3390,11 @@ COMPOSE_CASES = [
             ],
         ),
     ),
-    # compose-eks-cluster turns the pool's capacityBlock into a CAPACITY_BLOCK
-    # node group.
+    # compose-eks-cluster turns the pool's capacityReservation into a
+    # CAPACITY_BLOCK node group.
     ComposeCase(
         name="EKSCapacityBlock",
-        reason="A node pool backed by a Capacity Block passes its reservation ID through to the EKSCluster pool's capacityBlock.",
+        reason="A node pool referencing a Capacity Block CapacityReservation passes its type and ID through to the EKSCluster pool's capacityReservation.",
         req=fnv1.RunFunctionRequest(
             observed=fnv1.State(
                 composite=_inference_cluster(
@@ -2705,9 +3406,7 @@ COMPOSE_CASES = [
                             nodeCount=2,
                             maxNodeCount=4,
                             zones=["us-west-2a"],
-                            capacityBlock=v1alpha1.CapacityBlock(
-                                capacityReservationId="cr-0123456789abcdef0",
-                            ),
+                            reservationRef=v1alpha1.ReservationRef(name="l4-block"),
                         ),
                     ],
                 ),
@@ -2758,6 +3457,17 @@ COMPOSE_CASES = [
                         ),
                     ],
                 ),
+                "reservation-l4-block": fnv1.Resources(
+                    items=[
+                        _capacity_reservation(
+                            name="l4-block",
+                            spec={
+                                "provider": "EKS",
+                                "eks": {"region": "us-west-2", "type": "CapacityBlock", "id": "cr-0123456789abcdef0"},
+                            },
+                        ),
+                    ],
+                ),
             },
         ),
         want=fnv1.RunFunctionResponse(
@@ -2784,6 +3494,8 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
+                    "usage-capacityreservation-l4-block": _input_usage(kind="CapacityReservation", name="l4-block"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -2813,7 +3525,7 @@ COMPOSE_CASES = [
                     ),
                     "eks-cluster": _eks_cluster(
                         zones=["us-west-2a"],
-                        capacity_block={"capacityReservationId": "cr-0123456789abcdef0"},
+                        capacity_reservation={"type": "CapacityBlock", "id": "cr-0123456789abcdef0"},
                         fabric=None,
                         ready=fnv1.READY_UNSPECIFIED,
                     ),
@@ -2837,11 +3549,168 @@ COMPOSE_CASES = [
                     "class-gpu-l4-eks": fnv1.ResourceSelector(
                         api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4-eks"
                     ),
+                    "reservation-l4-block": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-block"
+                    ),
                 },
             ),
             conditions=[
                 fnv1.Condition(type="ClusterReady", status=fnv1.STATUS_CONDITION_FALSE, reason="Provisioning"),
                 fnv1.Condition(type="BackendReady", status=fnv1.STATUS_CONDITION_FALSE, reason="WaitingForCluster"),
+            ],
+        ),
+    ),
+    # compose-eks-cluster turns the pool's fabric into EFA launch-template
+    # interfaces.
+    ComposeCase(
+        name="EKSReservationWrongRegion",
+        reason="A node pool referencing a CapacityReservation in another region is rejected with a fatal result.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(source="EKS", eks=v1alpha1.Eks(region="us-west-2")),
+                    node_pools=[
+                        v1alpha1.NodePool(
+                            name="l4-pool",
+                            className="gpu-l4-eks",
+                            nodeCount=2,
+                            maxNodeCount=4,
+                            zones=["us-west-2a"],
+                            reservationRef=v1alpha1.ReservationRef(name="l4-block"),
+                        ),
+                    ],
+                ),
+                resources={
+                    "activation": _observed_activation_policy(
+                        activated=[
+                            "eips.ec2.aws.m.upbound.io",
+                            "internetgateways.ec2.aws.m.upbound.io",
+                            "launchtemplates.ec2.aws.m.upbound.io",
+                            "natgateways.ec2.aws.m.upbound.io",
+                            "routes.ec2.aws.m.upbound.io",
+                            "routetables.ec2.aws.m.upbound.io",
+                            "routetableassociations.ec2.aws.m.upbound.io",
+                            "securitygroups.ec2.aws.m.upbound.io",
+                            "securitygroupegressrules.ec2.aws.m.upbound.io",
+                            "securitygroupingressrules.ec2.aws.m.upbound.io",
+                            "subnets.ec2.aws.m.upbound.io",
+                            "vpcs.ec2.aws.m.upbound.io",
+                            "filesystems.efs.aws.m.upbound.io",
+                            "mounttargets.efs.aws.m.upbound.io",
+                            "addons.eks.aws.m.upbound.io",
+                            "clusters.eks.aws.m.upbound.io",
+                            "clusterauths.eks.aws.m.upbound.io",
+                            "nodegroups.eks.aws.m.upbound.io",
+                            "podidentityassociations.eks.aws.m.upbound.io",
+                            "policies.iam.aws.m.upbound.io",
+                            "roles.iam.aws.m.upbound.io",
+                            "rolepolicyattachments.iam.aws.m.upbound.io",
+                        ]
+                    ),
+                },
+            ),
+            required_resources={
+                "class-gpu-l4-eks": fnv1.Resources(
+                    items=[
+                        _inference_class(
+                            name="gpu-l4-eks",
+                            count=1,
+                            memory="24Gi",
+                            provisioning={
+                                "provider": "EKS",
+                                "eks": {
+                                    "instanceType": "g6.xlarge",
+                                    "diskSizeGb": 100,
+                                    "accelerator": {"type": "nvidia-l4", "count": 1},
+                                },
+                            },
+                        ),
+                    ],
+                ),
+                "reservation-l4-block": fnv1.Resources(
+                    items=[
+                        _capacity_reservation(
+                            name="l4-block",
+                            spec={
+                                "provider": "EKS",
+                                "eks": {"region": "us-east-2", "type": "CapacityBlock", "id": "cr-0123456789abcdef0"},
+                            },
+                        ),
+                    ],
+                ),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
+                    "usage-capacityreservation-l4-block": _input_usage(kind="CapacityReservation", name="l4-block"),
+                    "activation": _activation_policy(
+                        activate=[
+                            "eips.ec2.aws.m.upbound.io",
+                            "internetgateways.ec2.aws.m.upbound.io",
+                            "launchtemplates.ec2.aws.m.upbound.io",
+                            "natgateways.ec2.aws.m.upbound.io",
+                            "routes.ec2.aws.m.upbound.io",
+                            "routetables.ec2.aws.m.upbound.io",
+                            "routetableassociations.ec2.aws.m.upbound.io",
+                            "securitygroups.ec2.aws.m.upbound.io",
+                            "securitygroupegressrules.ec2.aws.m.upbound.io",
+                            "securitygroupingressrules.ec2.aws.m.upbound.io",
+                            "subnets.ec2.aws.m.upbound.io",
+                            "vpcs.ec2.aws.m.upbound.io",
+                            "filesystems.efs.aws.m.upbound.io",
+                            "mounttargets.efs.aws.m.upbound.io",
+                            "addons.eks.aws.m.upbound.io",
+                            "clusters.eks.aws.m.upbound.io",
+                            "clusterauths.eks.aws.m.upbound.io",
+                            "nodegroups.eks.aws.m.upbound.io",
+                            "podidentityassociations.eks.aws.m.upbound.io",
+                            "policies.iam.aws.m.upbound.io",
+                            "roles.iam.aws.m.upbound.io",
+                            "rolepolicyattachments.iam.aws.m.upbound.io",
+                        ],
+                        ready=fnv1.READY_TRUE,
+                    ),
+                },
+            ),
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4-eks": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4-eks"
+                    ),
+                    "reservation-l4-block": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="CapacityReservation", match_name="l4-block"
+                    ),
+                },
+            ),
+            results=[
+                fnv1.Result(
+                    severity=fnv1.SEVERITY_FATAL,
+                    message="CapacityReservation l4-block is in region us-east-2, but the cluster is in us-west-2",
+                )
+            ],
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="InvalidNodePool",
+                    message="CapacityReservation l4-block is in region us-east-2, but the cluster is in us-west-2",
+                ),
             ],
         ),
     ),
@@ -2938,6 +3807,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4-eks": _input_usage(kind="InferenceClass", name="gpu-l4-eks"),
                     "activation": _activation_policy(
                         activate=[
                             "eips.ec2.aws.m.upbound.io",
@@ -2966,7 +3836,7 @@ COMPOSE_CASES = [
                         ready=fnv1.READY_TRUE,
                     ),
                     "eks-cluster": _eks_cluster(
-                        zones=["us-west-2a"], capacity_block=None, fabric="EFA", ready=fnv1.READY_UNSPECIFIED
+                        zones=["us-west-2a"], capacity_reservation=None, fabric="EFA", ready=fnv1.READY_UNSPECIFIED
                     ),
                 },
             ),
@@ -3076,6 +3946,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-nebius": _input_usage(kind="InferenceClass", name="gpu-h100-nebius"),
                     "activation": _activation_policy(
                         activate=[
                             "filesystems.compute.nebius.m.upbound.io",
@@ -3264,6 +4135,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-nebius": _input_usage(kind="InferenceClass", name="gpu-h100-nebius"),
                     "activation": _activation_policy(
                         activate=[
                             "filesystems.compute.nebius.m.upbound.io",
@@ -3436,6 +4308,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-aks": _input_usage(kind="InferenceClass", name="gpu-h100-aks"),
                     "activation": _activation_policy(
                         activate=[
                             "kubernetesclusters.containerservice.azure.m.upbound.io",
@@ -3614,6 +4487,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-aks": _input_usage(kind="InferenceClass", name="gpu-h100-aks"),
                     "activation": _activation_policy(
                         activate=[
                             "kubernetesclusters.containerservice.azure.m.upbound.io",
@@ -3772,6 +4646,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -3916,6 +4791,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "activation": _activation_policy(
                         activate=[
                             "projectiammembers.cloudplatform.gcp.m.upbound.io",
@@ -3929,7 +4805,7 @@ COMPOSE_CASES = [
                         ],
                         ready=fnv1.READY_TRUE,
                     ),
-                    "gke-cluster": _gke_cluster(credentials=None, ready=fnv1.READY_TRUE),
+                    "gke-cluster": _gke_cluster(credentials=None, reservation=None, ready=fnv1.READY_TRUE),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="test-cluster-kubeconfig-abcde",
                         identity={
@@ -4049,6 +4925,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-vultr": _input_usage(kind="InferenceClass", name="gpu-l40s-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -4148,6 +5025,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-vultr": _input_usage(kind="InferenceClass", name="gpu-l40s-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -4283,6 +5161,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-vultr": _input_usage(kind="InferenceClass", name="gpu-l40s-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -4425,6 +5304,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-cpu-vultr": _input_usage(kind="InferenceClass", name="cpu-vultr"),
                     "activation": _activation_policy(
                         activate=["kubernetes.vke.vultr.m.upbound.io", "kubernetesnodepools.vke.vultr.m.upbound.io"],
                         ready=fnv1.READY_TRUE,
@@ -4538,6 +5418,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-civo": _input_usage(kind="InferenceClass", name="gpu-l40s-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -4660,6 +5541,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-civo": _input_usage(kind="InferenceClass", name="gpu-l40s-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -4816,6 +5698,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l40s-civo": _input_usage(kind="InferenceClass", name="gpu-l40s-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -5005,6 +5888,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-h100-civo": _input_usage(kind="InferenceClass", name="gpu-h100-civo"),
                     "activation": _activation_policy(
                         activate=[
                             "clusters.kubernetes.civo.m.upbound.io",
@@ -5202,6 +6086,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(
                         reason="ModelReplicas, ModelRoutes and ModelCaches use this InferenceCluster"
                     ),
@@ -5326,6 +6211,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(reason="ModelRoutes use this InferenceCluster"),
                     "namespace-team-c": _namespace_object(team="team-c", name="mp-team-c-d79d9"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
@@ -5431,6 +6317,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(reason="ModelCaches use this InferenceCluster"),
                     "namespace-team-d": _namespace_object(team="team-d", name="mp-team-d-c2383"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
@@ -5537,6 +6424,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "usage-replicas": _guard_cluster_usage(reason="InferenceGateways use this InferenceCluster"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
@@ -5647,6 +6535,7 @@ COMPOSE_CASES = [
                     gateway=None,
                 ),
                 resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
                     "cluster-provider-config-kubernetes": _cluster_provider_config(
                         kubeconfig="my-kubeconfig", identity=None
                     ),
@@ -5686,17 +6575,98 @@ COMPOSE_CASES = [
             ],
         ),
     ),
-    # resolve_classes() returns False whenever a referenced InferenceClass isn't
-    # observed yet - a routine transient. The guard runs first, so a
-    # referencing replica still blocks deletion. This is the case that
-    # regresses if the guard is gated behind class resolution or cluster source.
-    #
-    # Only the guard and namespace are composed, both ready, so the function
-    # marks the XR not ready itself. Otherwise it would read ready while it
-    # waits for its classes.
+    # A missing InferenceClass fails the reconcile, so Crossplane applies none
+    # of its desired state and an existing cluster XR isn't deleted for being
+    # missing from it.
     ComposeCase(
         name="ClassUnresolved",
-        reason="With its class unresolved and a replica on the cluster, the function composes the guard and the replica's namespace before returning early.",
+        reason="With its class unresolved, the function fails the reconcile, reporting the missing class on ClusterReady.",
+        req=fnv1.RunFunctionRequest(
+            observed=fnv1.State(
+                composite=_inference_cluster(
+                    cluster=v1alpha1.Cluster(
+                        source="Existing",
+                        existing=v1alpha1.Existing(secretRef=v1alpha1.SecretRef(name="my-kubeconfig")),
+                    ),
+                    node_pools=[
+                        v1alpha1.NodePool(name="l4-pool", className="gpu-l4", nodeCount=2, maxNodeCount=4),
+                    ],
+                ),
+            ),
+            required_resources={
+                "model-replicas": fnv1.Resources(
+                    items=[
+                        fnv1.Resource(
+                            resource=resource.dict_to_struct(
+                                {
+                                    "apiVersion": "modelplane.ai/v1alpha1",
+                                    "kind": "ModelReplica",
+                                    "metadata": {
+                                        "name": "deploy-test-cluster-0",
+                                        "namespace": "team-a",
+                                        "labels": {"modelplane.ai/cluster": "test-cluster"},
+                                    },
+                                }
+                            )
+                        )
+                    ]
+                ),
+                # Crossplane fetched the class, and it doesn't exist.
+                "class-gpu-l4": fnv1.Resources(),
+            },
+        ),
+        want=fnv1.RunFunctionResponse(
+            meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
+            desired=fnv1.State(
+                resources={
+                    "usage-replicas": _guard_cluster_usage(reason="ModelReplicas use this InferenceCluster"),
+                    "namespace-team-a": _namespace_object(team="team-a", name="mp-team-a-bd964"),
+                },
+            ),
+            results=[fnv1.Result(severity=fnv1.SEVERITY_FATAL, message="Waiting for InferenceClasses: gpu-l4")],
+            context=structpb.Struct(),
+            requirements=fnv1.Requirements(
+                resources={
+                    "model-replicas": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelReplica",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-routes": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1",
+                        kind="ModelRoute",
+                        match_labels=fnv1.MatchLabels(labels={"modelplane.ai/cluster": "test-cluster"}),
+                    ),
+                    "model-caches": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="ModelCache"),
+                    "gateways": fnv1.ResourceSelector(api_version="modelplane.ai/v1alpha1", kind="InferenceGateway"),
+                    "class-gpu-l4": fnv1.ResourceSelector(
+                        api_version="modelplane.ai/v1alpha1", kind="InferenceClass", match_name="gpu-l4"
+                    ),
+                },
+            ),
+            conditions=[
+                fnv1.Condition(
+                    type="ClusterReady",
+                    status=fnv1.STATUS_CONDITION_FALSE,
+                    reason="WaitingForClasses",
+                    message="Waiting for InferenceClasses: gpu-l4",
+                ),
+            ],
+        ),
+    ),
+    # The hostname gate, which is what keeps a cluster off the schedule until
+    # traffic to it is mutually authenticated in both directions. These cases
+    # observe an existing cluster's ServingStack ready, with whatever it and the
+    # fleet's InferenceGateways have published so far. The gateway name is
+    # Modelplane's own, so nothing configures it. An InferenceGateway running on
+    # test-cluster also composes the deletion guard.
+    #
+    # This cluster's CA lets an InferenceGateway tell it reached the right
+    # cluster, and an InferenceGateway CA makes the cluster gateway demand a
+    # client certificate.
+    ComposeCase(
+        name="ClassNotYetFetched",
+        reason="Before Crossplane has fetched its class, the function asks for it and waits, without failing the reconcile.",
         req=fnv1.RunFunctionRequest(
             observed=fnv1.State(
                 composite=_inference_cluster(
@@ -5732,13 +6702,11 @@ COMPOSE_CASES = [
         want=fnv1.RunFunctionResponse(
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
             desired=fnv1.State(
-                composite=fnv1.Resource(ready=fnv1.READY_FALSE),
                 resources={
                     "usage-replicas": _guard_cluster_usage(reason="ModelReplicas use this InferenceCluster"),
                     "namespace-team-a": _namespace_object(team="team-a", name="mp-team-a-bd964"),
                 },
             ),
-            results=[fnv1.Result(severity=fnv1.SEVERITY_NORMAL, message="Waiting for InferenceClasses: gpu-l4")],
             context=structpb.Struct(),
             requirements=fnv1.Requirements(
                 resources={
@@ -5759,14 +6727,6 @@ COMPOSE_CASES = [
                     ),
                 },
             ),
-            conditions=[
-                fnv1.Condition(
-                    type="ClusterReady",
-                    status=fnv1.STATUS_CONDITION_FALSE,
-                    reason="WaitingForClasses",
-                    message="Waiting for InferenceClasses: gpu-l4",
-                ),
-            ],
         ),
     ),
     # The devices gate fires on a cluster that is already running - a shared
@@ -5848,7 +6808,11 @@ COMPOSE_CASES = [
         ),
         want=fnv1.RunFunctionResponse(
             meta=fnv1.ResponseMeta(ttl=durationpb.Duration(seconds=60)),
-            desired=fnv1.State(),
+            desired=fnv1.State(
+                resources={
+                    "usage-inferenceclass-gpu-l4": _input_usage(kind="InferenceClass", name="gpu-l4"),
+                },
+            ),
             results=[
                 fnv1.Result(
                     severity=fnv1.SEVERITY_FATAL,

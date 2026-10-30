@@ -1,10 +1,22 @@
 # An EKS InferenceCluster with a two-node H200 pool over EFA, validated serving
 # Qwen3-Coder-480B as a multi-node gang. The H200 nodes come from an EC2
-# Capacity Block reserved for ML.
+# Capacity Block reserved for ML, registered as a CapacityReservation that the
+# pool references.
 #
 # fabric.type: EFA turns on Elastic Fabric Adapter for the gang's cross-node
 # traffic; without it multi-node NCCL falls back to TCP, which is slow and
 # unstable.
+apiVersion: modelplane.ai/v1alpha1
+kind: CapacityReservation
+metadata:
+  name: h200-capacity-block
+spec:
+  provider: EKS
+  eks:
+    region: us-east-2
+    type: CapacityBlock
+    id: cr-0123456789abcdef0  # replace with your reservation ID
+---
 apiVersion: modelplane.ai/v1alpha1
 kind: InferenceCluster
 metadata:
@@ -23,8 +35,8 @@ spec:
     minNodeCount: 2
     maxNodeCount: 2
     zones:
-    - us-east-2b
+    - us-east-2b  # the Capacity Block's Availability Zone
     fabric:
       type: EFA
-    capacityBlock:
-      capacityReservationId: cr-0123456789abcdef0  # replace with your reservation ID
+    reservationRef:
+      name: h200-capacity-block

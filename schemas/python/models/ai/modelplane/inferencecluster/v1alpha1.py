@@ -210,15 +210,6 @@ class Crossplane(BaseModel):
     resourceRefs: list[ResourceRef] | None = None
 
 
-class CapacityBlock(BaseModel):
-    capacityReservationId: constr(
-        pattern=r'^cr-[0-9a-f]+$', min_length=4, max_length=64
-    )
-    """
-    The ID of the Capacity Reservation backing the Capacity Block (e.g. cr-0123456789abcdef0). Purchasing a Capacity Block yields this ID.
-    """
-
-
 class Infiniband(BaseModel):
     fabric: constr(min_length=1, max_length=63)
     """
@@ -237,11 +228,14 @@ class Fabric(BaseModel):
     """
 
 
+class ReservationRef(BaseModel):
+    name: constr(min_length=1, max_length=253)
+    """
+    Name of the CapacityReservation.
+    """
+
+
 class NodePool(BaseModel):
-    capacityBlock: CapacityBlock | None = None
-    """
-    Capacity Block reservation backing this node pool. EKS only. Large GPU instances (e.g. p5en.48xlarge) are rarely available on demand; AWS allocates them via Capacity Blocks for ML. Set this to back the pool with a Capacity Block you have purchased. The pool's zones must match the reservation's Availability Zone, and nodeCount must not exceed the reserved instance count. Omit for on-demand pools.
-    """
     className: constr(min_length=1, max_length=253)
     """
     Name of the InferenceClass describing this pool's hardware.
@@ -260,6 +254,10 @@ class NodePool(BaseModel):
     Name of the pool. Its nodes carry it as the value of the modelplane.ai/pool label, and the cluster agent observes an NVIDIA GPU pool through an object of this name.
     """
     nodeCount: conint(ge=0) | None = 1
+    reservationRef: ReservationRef | None = None
+    """
+    CapacityReservation backing this node pool. GKE and EKS only. The pool only uses the referenced reservation, and never falls back to on-demand capacity, so nodeCount must not exceed the reserved instance count. The reservation's provider must match the cluster's source. On GKE the pool's zones must be exactly the reservation's zone; on EKS they must be the reservation's Availability Zone. Immutable, because neither cloud can move an existing node pool onto or off a reservation. Omit for on-demand pools.
+    """
     zones: list[str] | None = None
     """
     Zones to restrict this node pool to. Required for provisioned pools because not all zones in a region have every GPU type.

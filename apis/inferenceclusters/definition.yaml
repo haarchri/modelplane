@@ -32,6 +32,8 @@ spec:
             x-kubernetes-validations:
             - rule: "self.cluster.source != 'Nebius' || !has(self.nodePools) || self.nodePools.all(p, !has(p.fabric) || p.fabric.type != 'InfiniBand' || has(p.fabric.infiniband))"
               message: fabric.infiniband is required when fabric.type is InfiniBand and cluster.source is Nebius.
+            - rule: "self.cluster.source in ['GKE', 'EKS'] || !has(self.nodePools) || self.nodePools.all(p, !has(p.reservationRef))"
+              message: nodePools[].reservationRef is only supported when cluster.source is GKE or EKS.
             properties:
               cluster:
                 type: object
@@ -459,6 +461,9 @@ spec:
                 items:
                   type: object
                   required: [name, className]
+                  x-kubernetes-validations:
+                  - rule: "has(self.reservationRef) == has(oldSelf.reservationRef) && (!has(self.reservationRef) || self.reservationRef.name == oldSelf.reservationRef.name)"
+                    message: A node pool's reservationRef is immutable. Add a new pool instead.
                   properties:
                     name:
                       type: string
@@ -497,29 +502,26 @@ spec:
                         region have every GPU type.
                       items:
                         type: string
-                    capacityBlock:
+                    reservationRef:
                       type: object
                       description: >-
-                        Capacity Block reservation backing this node pool.
-                        EKS only. Large GPU instances (e.g. p5en.48xlarge)
-                        are rarely available on demand; AWS allocates them
-                        via Capacity Blocks for ML. Set this to back the
-                        pool with a Capacity Block you have purchased. The
-                        pool's zones must match the reservation's
-                        Availability Zone, and nodeCount must not exceed the
-                        reserved instance count. Omit for on-demand pools.
-                      required:
-                      - capacityReservationId
+                        CapacityReservation backing this node pool. GKE and
+                        EKS only. The pool only uses the referenced
+                        reservation, and never falls back to on-demand
+                        capacity, so nodeCount must not exceed the reserved
+                        instance count. The reservation's provider must match
+                        the cluster's source. On GKE the pool's zones must be
+                        exactly the reservation's zone; on EKS they must be
+                        the reservation's Availability Zone. Immutable,
+                        because neither cloud can move an existing node pool
+                        onto or off a reservation. Omit for on-demand pools.
+                      required: [name]
                       properties:
-                        capacityReservationId:
+                        name:
                           type: string
-                          description: >-
-                            The ID of the Capacity Reservation backing the
-                            Capacity Block (e.g. cr-0123456789abcdef0).
-                            Purchasing a Capacity Block yields this ID.
-                          pattern: "^cr-[0-9a-f]+$"
-                          minLength: 4
-                          maxLength: 64
+                          description: Name of the CapacityReservation.
+                          minLength: 1
+                          maxLength: 253
                     fabric:
                       type: object
                       description: >-

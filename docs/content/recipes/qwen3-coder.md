@@ -24,7 +24,7 @@ cache.
 Both deployments were run end to end; the `InferenceClass` and
 `ModelDeployment` are the exact manifests from those runs. Apply the platform
 side first, then the ML side. Edit the EC2 capacity reservation placeholder in
-the `InferenceCluster` before applying it.
+the `CapacityReservation` before applying it.
 
 ## Validated deployments
 
